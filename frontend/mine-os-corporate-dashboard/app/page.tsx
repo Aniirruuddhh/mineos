@@ -1,0 +1,100 @@
+'use client'
+
+import { useMemo, useState } from 'react'
+import {
+  AlertTriangle,
+  Bell,
+  CalendarDays,
+  ChevronDown,
+  ChevronRight,
+  CircleHelp,
+  ClipboardCheck,
+  Download,
+  FileText,
+  LayoutDashboard,
+  Map,
+  Menu,
+  MoreHorizontal,
+  Search,
+  Settings,
+  ShieldCheck,
+  SlidersHorizontal,
+  TrendingDown,
+  TrendingUp,
+  X,
+} from 'lucide-react'
+import { Button } from '@/components/ui/button'
+
+type Mine = { name: string; region: string; risk: number; open: number; sla: number; overdue: number; status: 'High' | 'Medium' | 'Healthy'; x: number; y: number }
+type Violation = { id: string; category: string; mine: string; description: string; severity: 'Critical' | 'High' | 'Medium'; due: string; overdue?: boolean }
+
+const mines: Mine[] = [
+  { name: 'Jharia OCP-3', region: 'Jharkhand', risk: 86, open: 12, sla: 71, overdue: 5, status: 'High', x: 59, y: 49 },
+  { name: 'Korba EMC', region: 'Chhattisgarh', risk: 58, open: 8, sla: 83, overdue: 1, status: 'Medium', x: 51, y: 60 },
+  { name: 'Talcher Area-2', region: 'Odisha', risk: 43, open: 6, sla: 91, overdue: 0, status: 'Healthy', x: 65, y: 65 },
+  { name: 'Singrauli NCPH', region: 'Madhya Pradesh', risk: 78, open: 9, sla: 76, overdue: 3, status: 'High', x: 39, y: 49 },
+  { name: 'Raniganj Colliery', region: 'West Bengal', risk: 64, open: 3, sla: 88, overdue: 1, status: 'Medium', x: 70, y: 47 },
+]
+
+const violations: Violation[] = [
+  { id: 'V-2048', category: 'Safety', mine: 'Jharia OCP-3', description: 'Haul road berm height below required standard', severity: 'Critical', due: 'Overdue by 2d', overdue: true },
+  { id: 'V-2039', category: 'Environment', mine: 'Singrauli NCPH', description: 'Water quality sample submission pending', severity: 'High', due: 'Due in 4h' },
+  { id: 'V-2027', category: 'Labour', mine: 'Korba EMC', description: 'Contractor training records need validation', severity: 'High', due: 'Due tomorrow' },
+  { id: 'V-2014', category: 'Production', mine: 'Raniganj Colliery', description: 'Monthly production report discrepancy', severity: 'Medium', due: 'Due in 2d' },
+]
+
+const trends = [38, 45, 41, 52, 48, 61, 56, 68, 63, 74, 71, 82]
+const navItems = [
+  { label: 'Dashboard', icon: LayoutDashboard, active: true },
+  { label: 'Portfolio', icon: ClipboardCheck },
+  { label: 'Violations', icon: AlertTriangle },
+  { label: 'Mine Map', icon: Map },
+  { label: 'SLA Monitor', icon: ShieldCheck },
+  { label: 'Reports', icon: FileText },
+  { label: 'Audit Log', icon: CircleHelp },
+]
+
+export default function Page() {
+  const [query, setQuery] = useState('')
+  const [selectedMine, setSelectedMine] = useState<Mine | null>(null)
+  const [selectedViolation, setSelectedViolation] = useState<Violation | null>(null)
+  const [toast, setToast] = useState('')
+  const [mobileNav, setMobileNav] = useState(false)
+  const filteredMines = useMemo(() => mines.filter((mine) => `${mine.name} ${mine.region}`.toLowerCase().includes(query.toLowerCase())), [query])
+  const notify = (message: string) => { setToast(message); window.setTimeout(() => setToast(''), 2800) }
+
+  return (
+    <div className="min-h-screen bg-background text-foreground">
+      <aside className={`${mobileNav ? 'translate-x-0' : '-translate-x-full'} fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r border-border bg-sidebar p-5 transition-transform lg:translate-x-0`}>
+        <div className="flex items-center gap-3 px-2 pb-9"><div className="flex size-9 items-center justify-center rounded-xl bg-primary text-primary-foreground"><span className="text-lg font-black">M</span></div><div><p className="text-base font-bold tracking-tight">MineOS</p><p className="text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground">Corporate suite</p></div></div>
+        <nav className="flex-1 space-y-1" aria-label="Primary navigation">{navItems.map(({ label, icon: Icon, active }) => <button key={label} className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${active ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:bg-sidebar-accent hover:text-foreground'}`}><Icon className="size-[17px]" />{label}</button>)}</nav>
+        <div className="border-t border-border pt-4"><button className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-muted-foreground hover:bg-sidebar-accent hover:text-foreground"><Settings className="size-[17px]" />Settings</button><div className="mt-5 flex items-center gap-3 rounded-xl bg-muted/70 p-3"><div className="flex size-8 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary">AK</div><div className="min-w-0"><p className="truncate text-xs font-semibold">Aarav Khanna</p><p className="truncate text-[11px] text-muted-foreground">Corporate admin</p></div><MoreHorizontal className="ml-auto size-4 text-muted-foreground" /></div></div>
+      </aside>
+
+      <div className="lg:pl-64"><header className="sticky top-0 z-30 flex h-[78px] items-center justify-between border-b border-border bg-background/90 px-5 backdrop-blur md:px-8"><div className="flex items-center gap-3"><button className="rounded-md p-2 hover:bg-muted lg:hidden" onClick={() => setMobileNav(true)} aria-label="Open navigation"><Menu className="size-5" /></button><div><h1 className="text-lg font-bold tracking-tight md:text-xl">Corporate Compliance Overview</h1><p className="hidden text-xs text-muted-foreground sm:block">Monitor safety, SLA performance, and risk across all operations.</p></div></div><div className="flex items-center gap-2 md:gap-3"><div className="relative hidden md:block"><Search className="absolute left-3 top-2.5 size-4 text-muted-foreground" /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search mines..." className="h-9 w-48 rounded-lg border border-input bg-card pl-9 pr-3 text-xs outline-none ring-primary focus:ring-2" /></div><button className="relative rounded-lg p-2 text-muted-foreground hover:bg-muted" aria-label="Notifications"><Bell className="size-[18px]" /><span className="absolute right-1.5 top-1.5 size-1.5 rounded-full bg-red-500" /></button><button className="hidden items-center gap-2 rounded-lg border border-input bg-card px-3 py-2 text-xs font-medium sm:flex"><CalendarDays className="size-3.5 text-muted-foreground" />Aug 01 – Aug 31<ChevronDown className="size-3.5 text-muted-foreground" /></button><Button size="sm" onClick={() => notify('Report export queued successfully')} className="hidden gap-2 sm:flex"><Download className="size-3.5" />Export report</Button></div></header>
+
+        <main className="space-y-6 p-5 md:p-8"><section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{[['Open violations', '38', '+8.2%', 'from last month', TrendingUp], ['Escalated cases', '9', '+2.1%', 'from last month', AlertTriangle], ['SLA compliance', '84%', '+4.6%', 'from last month', TrendingUp], ['Resolved this month', '12', '+18.4%', 'from last month', TrendingUp]].map(([label, value, trend, caption, Icon], index) => <div key={label as string} className="relative overflow-hidden rounded-xl bg-primary p-5 text-primary-foreground shadow-sm"><div className="flex items-start justify-between"><p className="text-xs font-medium text-primary-foreground/70">{label as string}</p><Icon className={`size-4 ${index === 1 ? 'text-red-300' : 'text-primary-foreground/60'}`} /></div><p className="mt-4 text-3xl font-bold tracking-tight">{value as string}</p><p className="mt-2 flex items-center gap-1.5 text-[11px] text-primary-foreground/70"><span className={index === 1 ? 'text-red-300' : 'text-emerald-300'}>{trend as string}</span>{caption as string}</p><div className="absolute -bottom-8 -right-6 size-24 rounded-full border border-primary-foreground/10" /></div>)}</section>
+
+          <section className="grid gap-6 xl:grid-cols-[1.35fr_1fr]"><div className="rounded-xl border border-border bg-card p-5 shadow-sm"><div className="mb-5 flex items-start justify-between"><div><h2 className="font-semibold">Mine risk overview</h2><p className="mt-1 text-xs text-muted-foreground">Live compliance risk across active operations</p></div><button className="flex items-center gap-1 text-xs font-semibold text-primary hover:underline">Detailed map <ChevronRight className="size-3.5" /></button></div><div className="relative h-72 overflow-hidden rounded-lg bg-[#eef4f9]"><svg className="absolute inset-0 size-full" viewBox="0 0 600 310" preserveAspectRatio="none" aria-hidden="true"><path d="M170 18L240 32L280 70L325 88L370 132L420 145L470 198L450 257L390 286L315 273L285 235L235 222L200 176L158 146L145 93Z" fill="none" stroke="#c7d8e5" strokeWidth="2" strokeDasharray="5 6" /><path d="M188 62L232 106L273 128L304 166L365 170L411 213" fill="none" stroke="#d7e4ed" strokeWidth="1" /></svg>{filteredMines.map((mine) => <button key={mine.name} onClick={() => setSelectedMine(mine)} className="group absolute -translate-x-1/2 -translate-y-1/2" style={{ left: `${mine.x}%`, top: `${mine.y}%` }} aria-label={`View ${mine.name}`}><span className={`block size-4 rounded-full border-[3px] border-white shadow-md transition-transform group-hover:scale-125 ${mine.status === 'High' ? 'bg-red-500' : mine.status === 'Medium' ? 'bg-amber-500' : 'bg-emerald-500'}`} /><span className="pointer-events-none absolute left-1/2 top-6 hidden -translate-x-1/2 whitespace-nowrap rounded-md bg-foreground px-2 py-1 text-[10px] text-background group-hover:block">{mine.name}</span></button>)}<div className="absolute bottom-3 left-3 rounded-lg border border-border/70 bg-card/90 px-3 py-2 text-[10px] shadow-sm"><p className="mb-1 font-semibold">Risk level</p><div className="flex gap-3"><span className="flex items-center gap-1"><i className="size-2 rounded-full bg-red-500" />High</span><span className="flex items-center gap-1"><i className="size-2 rounded-full bg-amber-500" />Medium</span><span className="flex items-center gap-1"><i className="size-2 rounded-full bg-emerald-500" />Healthy</span></div></div><div className="absolute right-3 top-3 rounded-md bg-card/80 px-2 py-1 text-[10px] text-muted-foreground">India operations</div></div></div>
+
+            <div className="rounded-xl border border-border bg-card p-5 shadow-sm"><div className="mb-4 flex items-start justify-between"><div><h2 className="font-semibold">Escalation queue</h2><p className="mt-1 text-xs text-muted-foreground">Urgent items requiring leadership review</p></div><span className="rounded-full bg-red-50 px-2 py-1 text-[10px] font-semibold text-red-600">9 active</span></div><div className="space-y-2.5">{violations.map((violation) => <button key={violation.id} onClick={() => setSelectedViolation(violation)} className={`group flex w-full items-center gap-3 rounded-lg border p-3 text-left transition-colors hover:border-primary/40 ${violation.overdue ? 'border-red-200 bg-red-50/50' : 'border-border'}`}><div className={`flex size-8 shrink-0 items-center justify-center rounded-lg ${violation.overdue ? 'bg-red-100 text-red-600' : 'bg-amber-50 text-amber-600'}`}><AlertTriangle className="size-4" /></div><div className="min-w-0 flex-1"><div className="flex items-center gap-2"><p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">{violation.category}</p><span className={`text-[10px] font-semibold ${violation.overdue ? 'text-red-600' : 'text-amber-600'}`}>{violation.due}</span></div><p className="mt-1 truncate text-xs font-semibold">{violation.mine}</p><p className="truncate text-[11px] text-muted-foreground">{violation.description}</p></div><span className="text-[11px] font-semibold text-primary opacity-0 transition-opacity group-hover:opacity-100">Review</span></button>)}</div><button className="mt-4 flex items-center gap-1 text-xs font-semibold text-primary hover:underline">View all violations <ChevronRight className="size-3.5" /></button></div></section>
+
+          <section className="grid gap-6 xl:grid-cols-[1.15fr_1fr_0.9fr]"><div className="rounded-xl border border-border bg-card p-5 shadow-sm"><div className="mb-4 flex items-start justify-between"><div><h2 className="font-semibold">Highest-risk mines</h2><p className="mt-1 text-xs text-muted-foreground">Ranked by current risk score</p></div><SlidersHorizontal className="size-4 text-muted-foreground" /></div><div className="overflow-x-auto"><table className="w-full text-left text-xs"><thead className="border-b border-border text-[10px] uppercase tracking-wide text-muted-foreground"><tr><th className="pb-3 font-medium">#</th><th className="pb-3 font-medium">Mine</th><th className="pb-3 font-medium">Risk</th><th className="pb-3 font-medium">SLA</th></tr></thead><tbody>{filteredMines.sort((a,b) => b.risk-a.risk).map((mine, index) => <tr key={mine.name} onClick={() => setSelectedMine(mine)} className="cursor-pointer border-b border-border/60 last:border-0 hover:bg-muted/40"><td className="py-3 font-semibold text-muted-foreground">0{index + 1}</td><td className="py-3"><p className="font-semibold">{mine.name}</p><p className="mt-0.5 text-[10px] text-muted-foreground">{mine.open} open · {mine.overdue} overdue</p></td><td className="py-3"><span className={`font-bold ${mine.risk > 70 ? 'text-red-600' : mine.risk > 50 ? 'text-amber-600' : 'text-emerald-600'}`}>{mine.risk}</span></td><td className="py-3 font-medium">{mine.sla}%</td></tr>)}</tbody></table></div></div>
+
+            <div className="rounded-xl border border-border bg-card p-5 shadow-sm"><div className="flex items-start justify-between"><div><h2 className="font-semibold">Violation trends</h2><p className="mt-1 text-xs text-muted-foreground">Monthly reports across portfolio</p></div><span className="flex items-center gap-1 text-[10px] font-semibold text-red-600"><TrendingUp className="size-3" />12% this month</span></div><div className="mt-6 flex h-40 items-end gap-2 border-b border-border px-1">{trends.map((value, index) => <div key={index} className="group flex flex-1 flex-col items-center justify-end gap-1"><div className="w-full max-w-5 rounded-t-sm bg-primary/80 transition-colors group-hover:bg-primary" style={{ height: `${value * 1.45}px` }} /><span className="text-[9px] text-muted-foreground">{['S','O','N','D','J','F','M','A','M','J','J','A'][index]}</span></div>)}</div><div className="mt-5 flex flex-wrap gap-2"><span className="rounded-full bg-blue-50 px-2.5 py-1 text-[10px] font-semibold text-blue-700">Safety 42%</span><span className="rounded-full bg-amber-50 px-2.5 py-1 text-[10px] font-semibold text-amber-700">Environment 28%</span><span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-semibold text-emerald-700">Labour 18%</span><span className="rounded-full bg-violet-50 px-2.5 py-1 text-[10px] font-semibold text-violet-700">Production 12%</span></div></div>
+
+            <div className="rounded-xl border border-border bg-card p-5 shadow-sm"><div><h2 className="font-semibold">SLA health</h2><p className="mt-1 text-xs text-muted-foreground">Current resolution performance</p></div><div className="my-5 flex items-center justify-center"><div className="relative flex size-36 items-center justify-center rounded-full" style={{ background: 'conic-gradient(#1e40af 0deg 250deg, #f59e0b 250deg 291deg, #ef4444 291deg 360deg)' }}><div className="flex size-24 flex-col items-center justify-center rounded-full bg-card"><span className="text-2xl font-bold">84%</span><span className="text-[10px] text-muted-foreground">compliance</span></div></div></div><div className="space-y-2 text-xs"><div className="flex items-center justify-between"><span className="flex items-center gap-2"><i className="size-2 rounded-full bg-primary" />On track</span><b>25</b></div><div className="flex items-center justify-between"><span className="flex items-center gap-2"><i className="size-2 rounded-full bg-amber-500" />Due soon</span><b>4</b></div><div className="flex items-center justify-between"><span className="flex items-center gap-2"><i className="size-2 rounded-full bg-red-500" />Escalated</span><b>9</b></div></div><Button variant="outline" size="sm" className="mt-5 w-full" onClick={() => notify('SLA monitor opened')}>View SLA monitor</Button></div></section>
+        </main>
+      </div>
+
+      {mobileNav && <button className="fixed inset-0 z-30 bg-foreground/20 lg:hidden" onClick={() => setMobileNav(false)} aria-label="Close navigation" />}
+      {selectedMine && <div className="fixed inset-0 z-50 flex justify-end bg-foreground/20" onClick={() => setSelectedMine(null)}><aside onClick={(e) => e.stopPropagation()} className="h-full w-full max-w-md overflow-y-auto bg-card p-6 shadow-xl"><div className="flex items-start justify-between"><div><p className="text-xs font-semibold uppercase tracking-widest text-primary">Mine profile</p><h2 className="mt-2 text-2xl font-bold">{selectedMine.name}</h2><p className="mt-1 text-sm text-muted-foreground">{selectedMine.region} · Active operation</p></div><button onClick={() => setSelectedMine(null)} className="rounded-lg p-2 hover:bg-muted" aria-label="Close mine details"><X className="size-5" /></button></div><div className="mt-8 grid grid-cols-2 gap-3"><div className="rounded-xl bg-red-50 p-4"><p className="text-xs text-red-700">Risk score</p><p className="mt-2 text-3xl font-bold text-red-700">{selectedMine.risk}</p></div><div className="rounded-xl bg-blue-50 p-4"><p className="text-xs text-blue-700">SLA compliance</p><p className="mt-2 text-3xl font-bold text-blue-700">{selectedMine.sla}%</p></div></div><div className="mt-6 space-y-3 rounded-xl border border-border p-4"><div className="flex justify-between text-sm"><span className="text-muted-foreground">Open violations</span><b>{selectedMine.open}</b></div><div className="flex justify-between text-sm"><span className="text-muted-foreground">Overdue cases</span><b className="text-red-600">{selectedMine.overdue}</b></div><div className="flex justify-between text-sm"><span className="text-muted-foreground">Risk classification</span><b>{selectedMine.status}</b></div></div><Button className="mt-6 w-full" onClick={() => notify(`Opening map for ${selectedMine.name}`)}>View detailed mine map</Button></aside></div>}
+      {selectedViolation && <div className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/30 p-4" onClick={() => setSelectedViolation(null)}><div onClick={(e) => e.stopPropagation()} className="w-full max-w-lg rounded-2xl bg-card p-6 shadow-xl"><div className="flex items-start justify-between"><div><p className="text-xs font-semibold uppercase tracking-widest text-red-600">Violation {selectedViolation.id}</p><h2 className="mt-2 text-xl font-bold">{selectedViolation.description}</h2></div><button onClick={() => setSelectedViolation(null)} className="rounded-lg p-2 hover:bg-muted" aria-label="Close violation details"><X className="size-5" /></button></div><div className="mt-6 grid grid-cols-2 gap-3 text-sm"><div className="rounded-lg bg-muted p-3"><p className="text-xs text-muted-foreground">Mine</p><p className="mt-1 font-semibold">{selectedViolation.mine}</p></div><div className="rounded-lg bg-muted p-3"><p className="text-xs text-muted-foreground">SLA status</p><p className="mt-1 font-semibold text-red-600">{selectedViolation.due}</p></div></div><div className="mt-6 flex justify-end gap-2"><Button variant="outline" onClick={() => setSelectedViolation(null)}>Close</Button><Button onClick={() => { setSelectedViolation(null); notify(`Review assigned for ${selectedViolation.id}`) }}>Assign review</Button></div></div></div>}
+      {toast && <div role="status" className="fixed bottom-5 right-5 z-[60] rounded-lg bg-foreground px-4 py-3 text-sm font-medium text-background shadow-lg">{toast}</div>}
+    </div>
+  )
+}
+
+export async function getMines() { return fetch('/api/mines').then((response) => response.json()) }
+export async function getViolations() { return fetch('/api/violations').then((response) => response.json()) }
+export async function getCorporateDashboard() { return fetch('/api/dashboard/corporate').then((response) => response.json()) }
