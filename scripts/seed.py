@@ -1,18 +1,26 @@
-import psycopg2
-from faker import Faker
+import os
 import random
 from datetime import datetime, timedelta
+
+import psycopg2
+from faker import Faker
 
 fake = Faker()
 
 # --- Connect to your local PostgreSQL database ---
-# Update these to match what you set up in Step 3
+required_settings = ["DB_NAME", "DB_USER", "DB_PASSWORD"]
+missing_settings = [setting for setting in required_settings if not os.getenv(setting)]
+
+if missing_settings:
+    missing = ", ".join(missing_settings)
+    raise RuntimeError(f"Missing database environment variables: {missing}")
+
 conn = psycopg2.connect(
-    host="localhost",
-    port="5432",
-    dbname="mineos",
-    user="postgres",
-    password="anirudh9123_"
+    host=os.getenv("DB_HOST", "localhost"),
+    port=os.getenv("DB_PORT", "5432"),
+    dbname=os.environ["DB_NAME"],
+    user=os.environ["DB_USER"],
+    password=os.environ["DB_PASSWORD"],
 )
 cur = conn.cursor()
 

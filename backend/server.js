@@ -1,5 +1,5 @@
 require('dotenv').config();
-const { writeAuditLog, computeHash } = require('./auditlog');
+const { writeAuditLog, computeHash, computeLegacyHash } = require('./auditlog');
 const express = require('express');
 const cors = require('cors');
 const { Pool } = require('pg');
@@ -38,39 +38,6 @@ const pool = new Pool({
   .DB_PASSWORD,
 });
 
-// GET all violations — joins in the mine's name so the frontend doesn't have to look it up separately
-app.get('/api/violations', async (req, res) => {
-  try {
-    const result = await pool.query(`
-      SELECT v.id, v.category, v.description, v.status, v.risk_score, v.created_at,
-             m.name AS mine_name
-      FROM violations v
-      JOIN mines m ON v.mine_id = m.id
-      ORDER BY v.created_at DESC
-    `);
-    res.json(result.rows);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Something went wrong fetching violations' });
-  }
-});
-
-// GET one specific violation by its ID
-app.get('/api/violations/:id', async (req, res) => {
-  try {
-    const result = await pool.query(
-      `SELECT v.*, m.name AS mine_name FROM violations v JOIN mines m ON v.mine_id = m.id WHERE v.id = $1`,
-      [req.params.id]
-    );
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Violation not found' });
-    }
-    res.json(result.rows[0]);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Something went wrong fetching this violation' });
-  }
-});
 // GET — walks the ENTIRE chain and proves nothing was tampered with. Great live-demo moment.
 app.get('/api/audit-log/verify', async (req, res) => {
   try {
@@ -78,15 +45,17 @@ app.get('/api/audit-log/verify', async (req, res) => {
     let expectedPrevious = '0'.repeat(64);
 
     for (const entry of result.rows) {
-      const recomputed = computeHash({
+      const auditEntry = {
         previous_hash: expectedPrevious,
         violation_id: entry.violation_id,
         action: entry.action,
         performed_by: entry.performed_by,
         details: entry.details,
         created_at: entry.created_at
-      });
-      if (recomputed !== entry.entry_hash) {
+      };
+      const hashes = [computeHash(auditEntry), computeLegacyHash(auditEntry)];
+
+      if (entry.previous_hash !== expectedPrevious || !hashes.includes(entry.entry_hash)) {
         return res.json({ valid: false, brokenAtEntryId: entry.id });
       }
       expectedPrevious = entry.entry_hash;
@@ -100,22 +69,34 @@ app.get('/api/audit-log/verify', async (req, res) => {
 // POST — create a new violation (this is what your field report form will call later)
 app.post('/api/violations', async (req, res) => {
   const { mine_id, reported_by, category, description } = req.body;
+  let client;
+
   try {
-    const result = await pool.query(
+    client = await pool.connect();
+    await client.query('BEGIN');
+
+    const result = await client.query(
       `INSERT INTO violations (mine_id, reported_by, category, description, status, created_at)
        VALUES ($1, $2, $3, $4, 'open', NOW()) RETURNING *`,
       [mine_id, reported_by, category, description]
     );
-    await writeAuditLog(pool, {
+    await writeAuditLog(client, {
       violation_id: result.rows[0].id,
       action: 'created',
       performed_by: reported_by,
       details: `Violation reported: ${category} - ${description}`
     });
+    await client.query('COMMIT');
+
     res.status(201).json(result.rows[0]);
   } catch (err) {
+    if (client) {
+      await client.query('ROLLBACK');
+    }
     console.error(err);
     res.status(500).json({ error: 'Something went wrong creating the violation' });
+  } finally {
+    client?.release();
   }
 });
 app.get('/api/violations', async (req, res) => {
@@ -179,27 +160,39 @@ app.get('/api/audit-log/:violation_id', async (req, res) => {
 // PATCH — update a violation's status (e.g., mark it closed)
 app.patch('/api/violations/:id', async (req, res) => {
   const { status } = req.body;
+  let client;
+
   try {
-    const result = await pool.query(
+    client = await pool.connect();
+    await client.query('BEGIN');
+
+    const result = await client.query(
       `UPDATE violations SET status = $1 WHERE id = $2 RETURNING *`,
       [status, req.params.id]
     );
 
     if (result.rows.length === 0) {
+      await client.query('ROLLBACK');
       return res.status(404).json({ error: 'Violation not found' });
     }
 
-    await writeAuditLog(pool, {
+    await writeAuditLog(client, {
       violation_id: req.params.id,
       action: 'status_changed',
       performed_by: req.body.performed_by,
       details: `Status changed to ${status}`
     });
+    await client.query('COMMIT');
 
     res.json(result.rows[0]);
   } catch (err) {
+    if (client) {
+      await client.query('ROLLBACK');
+    }
     console.error(err);
     res.status(500).json({ error: 'Something went wrong updating the violation' });
+  } finally {
+    client?.release();
   }
 });
 

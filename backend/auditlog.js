@@ -1,14 +1,41 @@
 const crypto = require('crypto');
 
-// Computes a SHA-256 fingerprint from this entry's data + the previous entry's hash
+function toIsoTimestamp(value) {
+  const timestamp = value instanceof Date ? value : new Date(value);
+
+  if (Number.isNaN(timestamp.getTime())) {
+    throw new Error('Invalid audit timestamp');
+  }
+
+  return timestamp.toISOString();
+}
+
+// Computes a SHA-256 fingerprint from a stable representation of an entry.
 function computeHash({ previous_hash, violation_id, action, performed_by, details, created_at }) {
-  const raw = `${previous_hash}|${violation_id}|${action}|${performed_by}|${details}|${created_at}`;
+  const payload = JSON.stringify({
+    previous_hash,
+    violation_id,
+    action,
+    performed_by,
+    details,
+    created_at: toIsoTimestamp(created_at),
+  });
+
+  return crypto.createHash('sha256').update(payload).digest('hex');
+}
+
+// Supports records created before the stable JSON representation was introduced.
+function computeLegacyHash({ previous_hash, violation_id, action, performed_by, details, created_at }) {
+  const raw = `${previous_hash}|${violation_id}|${action}|${performed_by}|${details}|${toIsoTimestamp(created_at)}`;
   return crypto.createHash('sha256').update(raw).digest('hex');
 }
 
-// Writes one new, correctly-chained audit log entry
-async function writeAuditLog(pool, { violation_id, action, performed_by, details }) {
-  const lastEntry = await pool.query(
+// Call this with a PostgreSQL client that already has an open transaction.
+async function writeAuditLog(client, { violation_id, action, performed_by, details }) {
+  // Serializes chain writes so concurrent reports cannot use the same previous hash.
+  await client.query('SELECT pg_advisory_xact_lock($1)', [819120]);
+
+  const lastEntry = await client.query(
     'SELECT entry_hash FROM audit_log ORDER BY id DESC LIMIT 1'
   );
   // If this is the very first entry ever, there's no previous hash — use a fixed "genesis" value
@@ -17,7 +44,7 @@ async function writeAuditLog(pool, { violation_id, action, performed_by, details
   const created_at = new Date().toISOString();
   const entry_hash = computeHash({ previous_hash, violation_id, action, performed_by, details, created_at });
 
-  const result = await pool.query(
+  const result = await client.query(
     `INSERT INTO audit_log (violation_id, action, performed_by, details, previous_hash, entry_hash, created_at)
      VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
     [violation_id, action, performed_by, details, previous_hash, entry_hash, created_at]
@@ -25,4 +52,4 @@ async function writeAuditLog(pool, { violation_id, action, performed_by, details
   return result.rows[0];
 }
 
-module.exports = { writeAuditLog, computeHash };
+module.exports = { writeAuditLog, computeHash, computeLegacyHash };
