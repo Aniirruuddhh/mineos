@@ -11,6 +11,7 @@ app.use(express.json());   // lets the server understand JSON data sent to it
 const multer = require('multer');
 const Tesseract = require('tesseract.js');
 const upload = multer({ dest: 'uploads/' });  // temporarily saves uploaded files to a local folder
+const { getEscalationStatus } = require('./sla');
 
 // POST an image, get back extracted text
 app.post('/api/ocr', upload.single('document'), async (req, res) => {
@@ -117,6 +118,47 @@ app.post('/api/violations', async (req, res) => {
     res.status(500).json({ error: 'Something went wrong creating the violation' });
   }
 });
+app.get('/api/violations', async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT v.id, v.category, v.description, v.status, v.risk_score, v.created_at,
+             m.name AS mine_name
+      FROM violations v
+      JOIN mines m ON v.mine_id = m.id
+      ORDER BY v.created_at DESC
+    `);
+
+    // Add escalation info to every row before sending it back
+    const withEscalation = result.rows.map(v => ({
+      ...v,
+      ...getEscalationStatus(v),
+    }));
+
+    res.json(withEscalation);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Something went wrong fetching violations' });
+  }
+});
+app.get('/api/violations/:id', async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT v.*, m.name AS mine_name FROM violations v JOIN mines m ON v.mine_id = m.id WHERE v.id = $1`,
+      [req.params.id]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Violation not found' });
+    }
+    const violationWithEscalation = {
+      ...result.rows[0],
+      ...getEscalationStatus(result.rows[0]),
+    };
+    res.json(violationWithEscalation);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Something went wrong fetching this violation' });
+  }
+});
 // GET the full audit history for one specific violation
 app.get('/api/audit-log/:violation_id', async (req, res) => {
   try {
@@ -171,7 +213,6 @@ app.get('/api/mines', async (req, res) => {
     res.status(500).json({ error: 'Something went wrong fetching mines' });
   }
 });
-
 const PORT = process.env.PORT || 5050;
 app.listen(PORT, () => {
   console.log(`🚀 Server running on http://localhost:${PORT}`);
