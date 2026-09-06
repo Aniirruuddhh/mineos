@@ -24,6 +24,14 @@ conn = psycopg2.connect(
 )
 cur = conn.cursor()
 
+# Keep reruns safe during a demo: existing sample data is left untouched.
+cur.execute("SELECT COUNT(*) FROM violations")
+if cur.fetchone()[0] > 0:
+    print("ℹ️ Existing MineOS data found; seed skipped.")
+    cur.close()
+    conn.close()
+    raise SystemExit(0)
+
 # --- STEP A: Insert 5 real coalfield mines ---
 mines = [
     ("Jharia OCP-3", "BCCL", 23.7377, 86.4149),
@@ -124,7 +132,7 @@ for v_id in to_close:
         "INSERT INTO corrective_actions (violation_id, action_taken, closed_at) VALUES (%s, %s, %s)",
         (v_id, "Issue reviewed and corrected per site protocol.", datetime.now())
     )
-    cur.execute("UPDATE violations SET status = 'closed' WHERE id = %s", (v_id,))
+    cur.execute("UPDATE violations SET status = 'closed', resolved_at = %s WHERE id = %s", (datetime.now(), v_id))
 
 print(f"✅ {len(to_close)} violations closed with corrective actions")
 

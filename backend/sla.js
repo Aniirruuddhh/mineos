@@ -8,7 +8,7 @@ const SLA_HOURS = {
 // Given a violation, returns how it stands against its SLA
 function getEscalationStatus(violation) {
   // Already closed? No escalation applies — it's resolved.
-  if (violation.status === 'closed') {
+  if (['resolved', 'closed'].includes(violation.status)) {
     return { escalation_status: 'closed', hours_remaining: null };
   }
 

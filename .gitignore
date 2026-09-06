@@ -1,4 +1,6 @@
 node_modules/
+.next/
+.pnpm-store/
 .env
 .env.*
 !.env.example
@@ -6,3 +8,6 @@ uploads/
 .DS_Store
 coverage/
 *.log
+*.tsbuildinfo
+next-env.d.ts
+__pycache__/

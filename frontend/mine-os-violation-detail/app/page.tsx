@@ -1,121 +1,142 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { ChangeEvent, useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  AlertTriangle,
-  ArrowLeft,
-  ArrowUpRight,
-  Check,
-  CheckCircle2,
-  ChevronDown,
-  ClipboardCheck,
-  Clock3,
-  Copy,
-  FileText,
-  GitBranch,
-  Image as ImageIcon,
-  MapPin,
-  Menu,
-  MoreHorizontal,
-  Navigation,
-  Plus,
-  Search,
-  ShieldCheck,
-  SlidersHorizontal,
-  UserRound,
-  Users,
-  X,
-  ZoomIn,
+  AlertTriangle, ArrowLeft, Check, CheckCircle2, ChevronDown, ClipboardCheck, Clock3, Copy,
+  FileText, GitBranch, Image as ImageIcon, MapPin, MoreHorizontal, Navigation, Plus, Search,
+  ShieldCheck, Upload, Users, X, ZoomIn,
 } from 'lucide-react'
+import { getAuditLog, getCorrectiveActions, getViolation, updateCorrectiveAction, updateViolationStatus, uploadEvidence, verifyAuditLog } from '@/lib/api'
 
-const API_ENDPOINTS = {
-  violation: '/api/violations/VIO-2026-0148',
-  audit: '/api/audit-log/VIO-2026-0148',
-  verify: '/api/audit-log/verify',
+type Evidence = { id: number; url: string; name: string; mime_type: string; captured_at: string | null }
+type Violation = {
+  id: number; case_id: string; mine_name: string; mine_subsidiary: string; category: string; description: string
+  status: string; severity: string; area: string | null; reported_by: number; reported_by_name: string
+  latitude: number | null; longitude: number | null; gps_accuracy: number | null; device_timestamp: string | null
+  server_received_at: string | null; created_at: string; ocr_text: string | null; evidence: Evidence | null
+  escalation_status: string; hours_remaining: number | null
+}
+type CorrectiveAction = { id: number; action_taken: string; owner_name: string | null; due_at: string | null; status: string; notes: string | null }
+type AuditEntry = { id: number; action: string; performed_by_name: string | null; details: string; created_at: string }
+type Integrity = { valid: boolean; entriesChecked?: number; brokenAtEntryId?: number }
+
+function titleCase(value: string) { return value.split('_').map((word) => word[0].toUpperCase() + word.slice(1)).join(' ') }
+function formatDate(value: string | null) { return value ? new Intl.DateTimeFormat('en-IN', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) : 'Not recorded' }
+function dueLabel(violation: Violation) {
+  if (violation.escalation_status === 'closed') return 'Closed'
+  if (violation.escalation_status === 'escalated') return `Overdue by ${Math.max(1, Math.abs(violation.hours_remaining || 0))}h`
+  return `${Math.max(0, violation.hours_remaining || 0)}h remaining`
 }
 
-const initialActions = [
-  { id: 1, label: 'Inspect affected roof support zone', meta: 'Rakesh Kumar · due today', done: true },
-  { id: 2, label: 'Restrict access to Active Panel 3', meta: 'Suresh Yadav · due today', done: true },
-  { id: 3, label: 'Replace non-compliant support materials', meta: 'Maintenance crew · overdue 6h', done: false, blocked: true },
-  { id: 4, label: 'Upload supervisor verification photo', meta: 'Priya Singh · due 06 Sep', done: false },
-]
-
-const timeline = [
-  { time: '05 Sep 2026 · 16:26', name: 'MineOS system', action: 'SLA escalated', note: 'Response target exceeded by 6h 14m.', danger: true, initials: 'M' },
-  { time: '05 Sep 2026 · 14:18', name: 'Priya Singh', action: 'Evidence uploaded', note: 'Added roof-support inspection photo from Panel 3.', initials: 'PS' },
-  { time: '05 Sep 2026 · 12:05', name: 'Suresh Yadav', action: 'Corrective action assigned', note: 'Assigned 4-step remediation plan to Panel 3 crew.', initials: 'SY' },
-  { time: '05 Sep 2026 · 11:16', name: 'Anil Kumar', action: 'Status changed from Open to Acknowledged', note: 'Manager confirmed receipt and started review.', initials: 'AK' },
-  { time: '05 Sep 2026 · 10:47', name: 'MineOS system', action: 'Manager notified', note: 'Critical violation alert sent to site leadership.', initials: 'M' },
-  { time: '05 Sep 2026 · 10:42', name: 'Rakesh Kumar', action: 'Report created', note: 'New critical violation logged from underground inspection.', initials: 'RK' },
-]
-
-function Avatar({ initials, tone = 'blue' }: { initials: string; tone?: 'blue' | 'sand' | 'green' }) {
-  return <span className={`avatar avatar-${tone}`}>{initials}</span>
-}
-
-function Pill({ children, tone = 'neutral' }: { children: React.ReactNode; tone?: string }) {
-  return <span className={`pill pill-${tone}`}>{children}</span>
-}
+function Avatar({ initials, tone = 'blue' }: { initials: string; tone?: 'blue' | 'sand' | 'green' }) { return <span className={`avatar avatar-${tone}`}>{initials}</span> }
+function Pill({ children, tone = 'neutral' }: { children: React.ReactNode; tone?: string }) { return <span className={`pill pill-${tone}`}>{children}</span> }
 
 export default function Page() {
-  const [status, setStatus] = useState('In Progress')
-  const [actions, setActions] = useState(initialActions)
+  const [violationId, setViolationId] = useState<number | null>(null)
+  const [violation, setViolation] = useState<Violation | null>(null)
+  const [actions, setActions] = useState<CorrectiveAction[]>([])
+  const [audit, setAudit] = useState<AuditEntry[]>([])
+  const [integrity, setIntegrity] = useState<Integrity | null>(null)
   const [statusOpen, setStatusOpen] = useState(false)
-  const [verifyOpen, setVerifyOpen] = useState(false)
   const [lightboxOpen, setLightboxOpen] = useState(false)
-  const [menuOpen, setMenuOpen] = useState(false)
-  const [copied, setCopied] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(true)
 
-  const completed = useMemo(() => actions.filter((item) => item.done).length, [actions])
-  const toggleAction = (id: number) => setActions((items) => items.map((item) => item.id === id ? { ...item, done: !item.done } : item))
-  const copyText = async () => {
-    await navigator.clipboard?.writeText('ROOF SUPPORT SPACING: 1.8M | PERMITTED MAX: 1.5M | PANEL 3 | INSPECTION REQUIRED')
-    setCopied(true)
-    window.setTimeout(() => setCopied(false), 1800)
+  const loadRecord = useCallback(async (id: number) => {
+    setLoading(true)
+    setError('')
+    try {
+      const [record, actionRecords, auditRecords] = await Promise.all([getViolation(id), getCorrectiveActions(id), getAuditLog(id)])
+      setViolation(record)
+      setActions(actionRecords)
+      setAudit(auditRecords)
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Could not load this violation.')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    const id = Number(new URLSearchParams(window.location.search).get('id'))
+    if (!Number.isInteger(id) || id <= 0) {
+      setError('Open a violation with a numeric id, for example ?id=1.')
+      setLoading(false)
+      return
+    }
+    setViolationId(id)
+    void loadRecord(id)
+  }, [loadRecord])
+
+  const completed = useMemo(() => actions.filter((action) => action.status === 'completed').length, [actions])
+  const evidenceUrl = violation?.evidence ? `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5050'}${violation.evidence.url}` : null
+
+  async function changeStatus(status: string) {
+    if (!violation || !violationId) return
+    try {
+      await updateViolationStatus(violationId, { status, performed_by: violation.reported_by })
+      setStatusOpen(false)
+      await loadRecord(violationId)
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Could not update the status.')
+    }
   }
 
-  return (
-    <main className="mineos-shell">
-      <header className="topbar">
-        <div className="topbar-inner">
-          <div className="brand"><div className="brand-mark"><GitBranch size={17} strokeWidth={2.5} /></div><span>mine<span>os</span></span></div>
-          <div className="topbar-divider" />
-          <nav className="topnav"><a className="active" href="#violations">Violations</a><a href="#dashboard">Dashboard</a><a href="#reports">Reports</a><a href="#people">People</a></nav>
-          <div className="top-actions"><button className="icon-button" aria-label="Search"><Search size={18} /></button><button className="icon-button has-dot" aria-label="Notifications"><Clock3 size={18} /></button><Avatar initials="AK" tone="sand" /><ChevronDown size={14} className="muted-icon" /></div>
-        </div>
-      </header>
+  async function changeAction(action: CorrectiveAction) {
+    if (!violation || !violationId) return
+    const status = action.status === 'completed' ? 'in_progress' : 'completed'
+    try {
+      await updateCorrectiveAction(action.id, { status, performed_by: violation.reported_by })
+      await loadRecord(violationId)
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Could not update the corrective action.')
+    }
+  }
 
-      <div className="page-wrap">
-        <div className="page-toolbar"><button className="back-link"><ArrowLeft size={16} /> All violations</button><div className="breadcrumbs"><span>MineOS</span><span>/</span><span>Violations</span><span>/</span><strong>VIO-2026-0148</strong></div><div className="toolbar-actions"><button className="button button-secondary"><Users size={16} /> Assign action</button><button className="button button-primary" onClick={() => setStatusOpen(true)}>Update status <ChevronDown size={15} /></button><div className="relative"><button className="button button-icon" onClick={() => setMenuOpen(!menuOpen)} aria-label="More actions"><MoreHorizontal size={18} /></button>{menuOpen && <div className="menu-popover"><button>Export violation</button><button>Print summary</button><button>Archive record</button></div>}</div></div></div>
+  async function verifyIntegrity() {
+    try {
+      setIntegrity(await verifyAuditLog())
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Could not verify the audit log.')
+    }
+  }
 
-        <section className="summary-card">
-          <div className="summary-main">
-            <div className="eyebrow">VIOLATION <span>•</span> 05 SEP 2026</div>
-            <div className="title-row"><h1>Roof support spacing exceeds permitted limit</h1><Pill tone="progress">{status}</Pill><Pill tone="critical">Critical</Pill></div>
-            <p className="summary-copy">Roof support spacing measured at 1.8m in Active Panel 3, exceeding the permitted maximum of 1.5m. Immediate corrective action is required to maintain ground control.</p>
-            <div className="summary-details"><div><span>Mine</span><strong>Jharia OCP-3</strong></div><div><span>Area</span><strong>Active Panel 3</strong></div><div className="reporter"><span>Reporter</span><strong><Avatar initials="RK" /> Rakesh Kumar</strong></div><div><span>Reported</span><strong>05 Sep 2026, 10:42 AM</strong></div></div>
-          </div>
-          <div className="sla-panel"><div className="sla-icon"><AlertTriangle size={19} /></div><span className="eyebrow">SLA STATUS</span><strong>Overdue by 6h 14m</strong><small>Target was 05 Sep · 10:42 AM</small></div>
-          <div className="integrity-wrap"><button className="integrity-badge" onClick={() => setVerifyOpen(!verifyOpen)}><ShieldCheck size={17} /> Audit integrity verified <ChevronDown size={14} /></button><small>Hash chain verified — 8 entries checked.</small>{verifyOpen && <div className="verify-popover"><div className="verify-title"><ShieldCheck size={18} /> Verification complete</div><p>Every audit entry is linked and untampered.</p><code>sha256: 7a9c...4e21</code><span>{API_ENDPOINTS.verify}</span></div>}</div>
-        </section>
+  async function addEvidence(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    if (!file || !violation || !violationId) return
+    setUploading(true)
+    setError('')
+    try {
+      await uploadEvidence(violationId, file, { performed_by: String(violation.reported_by), captured_at: new Date().toISOString() })
+      await loadRecord(violationId)
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Could not upload evidence.')
+    } finally {
+      setUploading(false)
+      event.target.value = ''
+    }
+  }
 
-        <div className="content-grid">
-          <div className="left-column">
-            <section className="card evidence-card"><div className="section-heading"><div><span className="section-kicker">PRIMARY EVIDENCE</span><h2>Evidence & location</h2></div><button className="text-button"><Plus size={15} /> Add evidence</button></div><button className="evidence-visual" onClick={() => setLightboxOpen(true)} aria-label="Open evidence image"><div className="mine-photo"><div className="photo-lamp lamp-one" /><div className="photo-lamp lamp-two" /><div className="photo-roof" /><div className="photo-support support-one" /><div className="photo-support support-two" /><div className="photo-floor" /><span className="photo-label">PANEL 3 / ROOF SUPPORT INSPECTION</span></div><span className="zoom-hint"><ZoomIn size={15} /> View full image</span></button><div className="tag-row"><Pill tone="blue"><ImageIcon size={13} /> Photo evidence</Pill><Pill tone="green"><MapPin size={13} /> GPS captured</Pill><Pill tone="purple"><FileText size={13} /> OCR processed</Pill></div><div className="location-grid"><div><span>Latitude</span><strong>23.748193° N</strong></div><div><span>Longitude</span><strong>86.423802° E</strong></div><div><span>Location accuracy</span><strong>±8 m</strong></div><div><span>Device timestamp</span><strong>05 Sep · 10:39 AM</strong></div><div><span>Server received</span><strong>05 Sep · 10:42 AM</strong></div></div><div className="map-preview"><div className="map-lines" /><div className="map-pin"><MapPin size={17} /></div><div className="map-caption"><strong>Jharia OCP-3 · Active Panel 3</strong><span>23.748193, 86.423802</span></div><button className="map-action"><Navigation size={14} /> Open on mine map <ArrowUpRight size={13} /></button></div></section>
+  const copyText = async () => {
+    if (!violation?.ocr_text) return
+    await navigator.clipboard?.writeText(violation.ocr_text)
+  }
 
-            <section className="card ocr-card"><div className="section-heading"><div><span className="section-kicker">DOCUMENT INTELLIGENCE</span><h2>OCR extraction</h2></div><Pill tone="confidence">92% confidence</Pill></div><div className="ocr-text"><span>EXTRACTED FROM IMAGE</span><p>“ROOF SUPPORT SPACING: 1.8M<br />PERMITTED MAXIMUM: 1.5M<br />INSPECTION REQUIRED — PANEL 3”</p></div><div className="ocr-actions"><button className="button button-secondary" onClick={copyText}>{copied ? <Check size={15} /> : <Copy size={15} />} {copied ? 'Copied' : 'Copy text'}</button><button className="button button-ghost" onClick={() => setLightboxOpen(true)}>View source image <ArrowUpRight size={14} /></button></div></section>
-          </div>
+  if (loading) return <main className="mineos-shell"><p className="page-wrap">Loading violation…</p></main>
+  if (!violation) return <main className="mineos-shell"><p role="alert" className="page-wrap">{error || 'Violation not found.'}</p></main>
 
-          <div className="right-column"><section className="card action-card"><div className="section-heading"><div><span className="section-kicker">REMEDIATION</span><h2>Corrective action plan</h2></div><button className="icon-button subtle"><MoreHorizontal size={18} /></button></div><div className="progress-line"><div><strong>{completed} of {actions.length} completed</strong><span>50% complete</span></div><div className="progress-track"><span style={{ width: `${(completed / actions.length) * 100}%` }} /></div></div><div className="checklist">{actions.map((item) => <button className={`check-item ${item.blocked && !item.done ? 'blocked' : ''}`} key={item.id} onClick={() => toggleAction(item.id)}><span className={`check-box ${item.done ? 'checked' : ''}`}>{item.done && <Check size={13} />}</span><span className="check-copy"><strong>{item.label}</strong><small>{item.meta}</small></span>{item.blocked && !item.done && <span className="overdue-tag">OVERDUE</span>}</button>)}</div><div className="assignee-row"><div className="assignee"><Avatar initials="SY" tone="green" /><div><span>Assigned to</span><strong>Suresh Yadav</strong></div></div><div className="due-date"><span>Due date</span><strong>05 Sep 2026</strong></div></div><button className="button button-primary full-width"><ClipboardCheck size={16} /> Update action plan</button></section><section className="card insight-card"><div className="insight-icon"><AlertTriangle size={17} /></div><div><strong>Critical risk requires attention</strong><p>Until support spacing is corrected, access to Active Panel 3 should remain restricted.</p></div></section></div>
-        </div>
-
-        <section className="card timeline-card"><div className="timeline-header"><div><span className="section-kicker">IMMUTABLE RECORD</span><h2>Status and audit history</h2></div><button className="button button-secondary"><SlidersHorizontal size={15} /> Filter events</button></div><div className="timeline">{timeline.map((event, index) => <div className={`timeline-item ${event.danger ? 'danger' : ''}`} key={event.time}><div className="timeline-marker"><Avatar initials={event.initials} tone={event.danger ? 'sand' : index % 2 ? 'blue' : 'green'} /></div><div className="timeline-content"><div className="timeline-meta"><strong>{event.action}</strong><span>{event.time}</span></div><p>{event.note}</p><small>by {event.name}</small></div><CheckCircle2 size={16} className="timeline-check" /></div>)}</div></section>
-        <footer className="page-footer"><span>MineOS Compliance Platform · Production workspace</span><span><ShieldCheck size={14} /> Audit log protected by hash chain</span></footer>
-      </div>
-
-      {statusOpen && <div className="modal-backdrop" onClick={() => setStatusOpen(false)}><div className="status-modal" onClick={(e) => e.stopPropagation()}><div className="modal-header"><div><span className="section-kicker">WORKFLOW</span><h2>Update status</h2></div><button className="icon-button" onClick={() => setStatusOpen(false)}><X size={18} /></button></div><p>Choose the next state for violation <strong>VIO-2026-0148</strong>.</p><div className="status-options">{['Open', 'Acknowledged', 'In Progress', 'Resolved', 'Closed'].map((option) => <button key={option} className={status === option ? 'selected' : ''} onClick={() => { setStatus(option); setStatusOpen(false) }}><span className={`status-dot ${option === 'Resolved' || option === 'Closed' ? 'green' : option === 'In Progress' ? 'blue' : 'gray'}`} />{option}{status === option && <Check size={16} />}</button>)}</div><button className="button button-secondary full-width" onClick={() => setStatusOpen(false)}>Cancel</button></div></div>}
-      {lightboxOpen && <div className="lightbox" onClick={() => setLightboxOpen(false)}><button className="lightbox-close" aria-label="Close image"><X size={22} /></button><div className="lightbox-image" onClick={(e) => e.stopPropagation()}><div className="mine-photo large"><div className="photo-lamp lamp-one" /><div className="photo-lamp lamp-two" /><div className="photo-roof" /><div className="photo-support support-one" /><div className="photo-support support-two" /><div className="photo-floor" /><span className="photo-label">PANEL 3 / ROOF SUPPORT INSPECTION</span></div><p>Evidence photo · captured 05 Sep 2026, 10:39 AM</p></div></div>}
-    </main>
-  )
+  return <main className="mineos-shell">
+    <header className="topbar"><div className="topbar-inner"><div className="brand"><div className="brand-mark"><GitBranch size={17} strokeWidth={2.5} /></div><span>mine<span>os</span></span></div><div className="topbar-divider" /><nav className="topnav"><a className="active" href="#violation">Violations</a><a href="#audit">Audit history</a></nav><div className="top-actions"><button className="icon-button" aria-label="Search"><Search size={18} /></button><button className="icon-button" aria-label="Notifications"><Clock3 size={18} /></button><Avatar initials={violation.reported_by_name.split(' ').map((name) => name[0]).slice(0, 2).join('')} tone="sand" /><ChevronDown size={14} className="muted-icon" /></div></div></header>
+    <div className="page-wrap" id="violation"><div className="page-toolbar"><button className="back-link" onClick={() => window.history.back()}><ArrowLeft size={16} /> All violations</button><div className="breadcrumbs"><span>MineOS</span><span>/</span><span>Violations</span><span>/</span><strong>{violation.case_id}</strong></div><div className="toolbar-actions"><button className="button button-secondary" onClick={() => document.getElementById('actions')?.scrollIntoView({ behavior: 'smooth' })}><Users size={16} /> View actions</button><button className="button button-primary" onClick={() => setStatusOpen(true)}>Update status <ChevronDown size={15} /></button></div></div>
+      {error && <p role="alert" className="error-message">{error}</p>}
+      <section className="summary-card"><div className="summary-main"><div className="eyebrow">VIOLATION <span>•</span> {formatDate(violation.created_at)}</div><div className="title-row"><h1>{violation.description}</h1><Pill tone="progress">{titleCase(violation.status)}</Pill><Pill tone={violation.severity}>{titleCase(violation.severity)}</Pill></div><div className="summary-details"><div><span>Mine</span><strong>{violation.mine_name}</strong></div><div><span>Area</span><strong>{violation.area || 'Not recorded'}</strong></div><div className="reporter"><span>Reporter</span><strong>{violation.reported_by_name}</strong></div><div><span>Reported</span><strong>{formatDate(violation.created_at)}</strong></div></div></div><div className="sla-panel"><div className="sla-icon"><AlertTriangle size={19} /></div><span className="eyebrow">SLA STATUS</span><strong>{dueLabel(violation)}</strong><small>{violation.escalation_status === 'escalated' ? 'Response target exceeded.' : 'Calculated from the report timestamp.'}</small></div><div className="integrity-wrap"><button className="integrity-badge" onClick={verifyIntegrity}><ShieldCheck size={17} /> {integrity?.valid ? 'Audit integrity verified' : 'Verify audit integrity'} <ChevronDown size={14} /></button>{integrity && <small>{integrity.valid ? `${integrity.entriesChecked} entries checked.` : `Integrity issue at entry ${integrity.brokenAtEntryId}.`}</small>}</div></section>
+      <div className="content-grid"><div className="left-column"><section className="card evidence-card"><div className="section-heading"><div><span className="section-kicker">PRIMARY EVIDENCE</span><h2>Evidence & location</h2></div><label className="text-button"><Plus size={15} /> {uploading ? 'Uploading…' : 'Add evidence'}<input type="file" accept="image/*,application/pdf" onChange={addEvidence} disabled={uploading} hidden /></label></div>{evidenceUrl && violation.evidence?.mime_type.startsWith('image/') ? <button className="evidence-visual" onClick={() => setLightboxOpen(true)} aria-label="Open evidence image"><img src={evidenceUrl} alt={violation.evidence.name || 'Violation evidence'} className="h-full w-full object-cover" /><span className="zoom-hint"><ZoomIn size={15} /> View full image</span></button> : <div className="detail-evidence"><ImageIcon size={24} /><div><strong>{violation.evidence?.name || 'No evidence attached'}</strong><span>{violation.evidence ? 'Open the original file from the evidence link.' : 'Upload an image or PDF to attach evidence.'}</span></div></div>} {evidenceUrl && <a className="text-button" href={evidenceUrl} target="_blank" rel="noreferrer"><FileText size={15} /> Open evidence file</a>}<div className="tag-row">{violation.evidence && <Pill tone="blue"><ImageIcon size={13} /> Evidence attached</Pill>}{violation.latitude !== null && <Pill tone="green"><MapPin size={13} /> GPS captured</Pill>}{violation.ocr_text && <Pill tone="purple"><FileText size={13} /> OCR processed</Pill>}</div><div className="location-grid"><div><span>Latitude</span><strong>{violation.latitude ?? 'Not recorded'}</strong></div><div><span>Longitude</span><strong>{violation.longitude ?? 'Not recorded'}</strong></div><div><span>Location accuracy</span><strong>{violation.gps_accuracy ? `±${Math.round(violation.gps_accuracy)} m` : 'Not recorded'}</strong></div><div><span>Device timestamp</span><strong>{formatDate(violation.device_timestamp)}</strong></div><div><span>Server received</span><strong>{formatDate(violation.server_received_at)}</strong></div></div><div className="map-preview"><div className="map-lines" /><div className="map-pin"><MapPin size={17} /></div><div className="map-caption"><strong>{violation.mine_name} · {violation.area || 'Reported location'}</strong><span>{violation.latitude ?? '—'}, {violation.longitude ?? '—'}</span></div><span className="map-action"><Navigation size={14} /> Location captured from report</span></div></section>
+          <section className="card ocr-card"><div className="section-heading"><div><span className="section-kicker">DOCUMENT INTELLIGENCE</span><h2>OCR extraction</h2></div>{violation.ocr_text && <Pill tone="confidence">Captured</Pill>}</div><div className="ocr-text"><span>EXTRACTED FROM EVIDENCE</span><p>{violation.ocr_text || 'No OCR text has been captured for this violation.'}</p></div>{violation.ocr_text && <div className="ocr-actions"><button className="button button-secondary" onClick={copyText}><Copy size={15} /> Copy text</button></div>}</section></div>
+        <div className="right-column"><section className="card action-card" id="actions"><div className="section-heading"><div><span className="section-kicker">REMEDIATION</span><h2>Corrective action plan</h2></div><MoreHorizontal size={18} /></div><div className="progress-line"><div><strong>{completed} of {actions.length} completed</strong><span>{actions.length ? Math.round((completed / actions.length) * 100) : 0}% complete</span></div><div className="progress-track"><span style={{ width: `${actions.length ? (completed / actions.length) * 100 : 0}%` }} /></div></div><div className="checklist">{actions.map((action) => <button className={`check-item ${action.status === 'completed' ? 'done' : ''}`} key={action.id} onClick={() => changeAction(action)}><span className={`check-box ${action.status === 'completed' ? 'checked' : ''}`}>{action.status === 'completed' && <Check size={13} />}</span><span className="check-copy"><strong>{action.action_taken}</strong><small>{action.owner_name || 'Unassigned'} · {action.due_at ? `due ${formatDate(action.due_at)}` : 'no due date'}</small></span></button>)}{!actions.length && <p className="empty-state">No corrective actions have been assigned yet.</p>}</div></section><section className="card insight-card"><div className="insight-icon"><AlertTriangle size={17} /></div><div><strong>{titleCase(violation.severity)} risk requires attention</strong><p>{violation.escalation_status === 'escalated' ? 'This violation has exceeded its SLA target.' : 'Monitor this violation until its corrective actions are completed.'}</p></div></section></div></div>
+      <section className="card timeline-card" id="audit"><div className="timeline-header"><div><span className="section-kicker">IMMUTABLE RECORD</span><h2>Status and audit history</h2></div><button className="button button-secondary" onClick={verifyIntegrity}><ShieldCheck size={15} /> Verify chain</button></div><div className="timeline">{audit.map((entry) => <div className="timeline-item" key={entry.id}><div className="timeline-marker"><Avatar initials={(entry.performed_by_name || 'M').split(' ').map((name) => name[0]).slice(0, 2).join('')} tone="green" /></div><div className="timeline-content"><div className="timeline-meta"><strong>{titleCase(entry.action)}</strong><span>{formatDate(entry.created_at)}</span></div><p>{entry.details}</p><small>by {entry.performed_by_name || 'MineOS system'}</small></div><CheckCircle2 size={16} className="timeline-check" /></div>)}{!audit.length && <p className="empty-state">No audit entries are available for this violation.</p>}</div></section><footer className="page-footer"><span>MineOS Compliance Platform · MVP workspace</span><span><ShieldCheck size={14} /> Audit log protected by hash chain</span></footer>
+    </div>
+    {statusOpen && <div className="modal-backdrop" onClick={() => setStatusOpen(false)}><div className="status-modal" onClick={(event) => event.stopPropagation()}><div className="modal-header"><div><span className="section-kicker">WORKFLOW</span><h2>Update status</h2></div><button className="icon-button" onClick={() => setStatusOpen(false)}><X size={18} /></button></div><p>Choose the next state for violation <strong>{violation.case_id}</strong>.</p><div className="status-options">{['open', 'acknowledged', 'in_progress', 'resolved', 'closed'].map((option) => <button key={option} className={violation.status === option ? 'selected' : ''} onClick={() => changeStatus(option)}>{titleCase(option)}{violation.status === option && <Check size={16} />}</button>)}</div><button className="button button-secondary full-width" onClick={() => setStatusOpen(false)}>Cancel</button></div></div>}
+    {lightboxOpen && evidenceUrl && <div className="lightbox" onClick={() => setLightboxOpen(false)}><button className="lightbox-close" aria-label="Close image"><X size={22} /></button><div className="lightbox-image" onClick={(event) => event.stopPropagation()}><img src={evidenceUrl} alt={violation.evidence?.name || 'Violation evidence'} /><p>{violation.evidence?.name}</p></div></div>}
+  </main>
 }
