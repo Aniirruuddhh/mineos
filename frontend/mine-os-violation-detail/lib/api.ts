@@ -4,6 +4,7 @@ async function request(path: string, options: RequestInit = {}) {
   const isFormData = options.body instanceof FormData
   const response = await fetch(`${API_URL}${path}`, {
     ...options,
+    credentials: 'include',
     headers: { ...(isFormData ? {} : { 'Content-Type': 'application/json' }), ...options.headers },
   })
   if (!response.ok) {
@@ -25,3 +26,5 @@ export const uploadEvidence = (violationId: number, file: File, payload: Record<
   Object.entries(payload).forEach(([key, value]) => body.append(key, value))
   return request(`/api/violations/${violationId}/evidence`, { method: 'POST', body })
 }
+export const createCorrectiveAction = (violationId: number, payload: { action_taken: string; performed_by: number; due_at?: string }) =>
+  request(`/api/violations/${violationId}/actions`, { method: 'POST', body: JSON.stringify(payload) })

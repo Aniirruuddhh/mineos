@@ -1,6 +1,0 @@
-{
-  "dependencies": {
-    "multer": "^2.3.0",
-    "tesseract.js": "^7.0.0"
-  }
-}

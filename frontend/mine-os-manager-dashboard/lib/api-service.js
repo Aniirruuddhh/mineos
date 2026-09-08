@@ -5,6 +5,7 @@ async function request(path, options = {}) {
 
   const response = await fetch(`${API_URL}${path}`, {
     ...options,
+    credentials: "include",
     headers: {
       ...(isFormData ? {} : { "Content-Type": "application/json" }),
       ...options.headers,
@@ -12,7 +13,8 @@ async function request(path, options = {}) {
   });
 
   if (!response.ok) {
-    throw new Error(`MineOS API request failed: ${response.status}`);
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.error || `MineOS API request failed: ${response.status}`);
   }
 
   return response.json();

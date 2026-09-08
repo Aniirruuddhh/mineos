@@ -4,6 +4,7 @@ async function request(path: string, options: RequestInit = {}) {
   const isFormData = options.body instanceof FormData
   const response = await fetch(`${API_URL}${path}`, {
     ...options,
+    credentials: 'include',
     headers: { ...(isFormData ? {} : { 'Content-Type': 'application/json' }), ...options.headers },
   })
   if (!response.ok) {

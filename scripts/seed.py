@@ -5,6 +5,9 @@ from datetime import datetime, timedelta
 import psycopg2
 from faker import Faker
 
+from dotenv import load_dotenv
+load_dotenv("../backend/.env")
+
 fake = Faker()
 
 # --- Connect to your local PostgreSQL database ---
@@ -18,9 +21,9 @@ if missing_settings:
 conn = psycopg2.connect(
     host=os.getenv("DB_HOST", "localhost"),
     port=os.getenv("DB_PORT", "5432"),
-    dbname=os.environ["DB_NAME"],
-    user=os.environ["DB_USER"],
-    password=os.environ["DB_PASSWORD"],
+    dbname=os.getenv("DB_NAME"),
+    user=os.getenv("DB_USER"),
+    password=os.getenv("DB_PASSWORD"),
 )
 cur = conn.cursor()
 
@@ -99,6 +102,7 @@ sample_descriptions = {
 }
 
 violation_ids = []
+violation_mine = {}  # tracks which mine each violation belongs to, for the closing step below
 for mine_name, count in violation_plan.items():
     for i in range(count):
         category = random.choice(categories)
@@ -117,24 +121,24 @@ for mine_name, count in violation_plan.items():
                 created_date
             )
         )
-        violation_ids.append(cur.fetchone()[0])
+        v_id = cur.fetchone()[0]
+        violation_ids.append(v_id)
+        violation_mine[v_id] = mine_name
 
 print(f"✅ {len(violation_ids)} violations inserted")
 
-# --- STEP D: Close about half of them with corrective actions ---
-# Real compliance systems always have a backlog — not everything gets fixed.
-# We deliberately leave MORE open at Jharia/Singrauli to justify their high-risk score later.
 random.shuffle(violation_ids)
 to_close = violation_ids[: len(violation_ids) // 2]  # close roughly half
 
 for v_id in to_close:
+    mine_name = violation_mine[v_id]
+    owner_id = user_ids[f"manager_{mine_name}"]
     cur.execute(
-        "INSERT INTO corrective_actions (violation_id, action_taken, closed_at) VALUES (%s, %s, %s)",
-        (v_id, "Issue reviewed and corrected per site protocol.", datetime.now())
+        """INSERT INTO corrective_actions (violation_id, action_taken, status, owner_id, closed_at)
+           VALUES (%s, %s, 'completed', %s, %s)""",
+        (v_id, "Issue reviewed and corrected per site protocol.", owner_id, datetime.now())
     )
     cur.execute("UPDATE violations SET status = 'closed', resolved_at = %s WHERE id = %s", (datetime.now(), v_id))
-
-print(f"✅ {len(to_close)} violations closed with corrective actions")
 
 # --- Save everything permanently ---
 conn.commit()
