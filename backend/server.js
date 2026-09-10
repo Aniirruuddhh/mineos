@@ -1,7 +1,7 @@
-require("dotenv").config();
+const path = require("path");
+require("dotenv").config({ path: path.join(__dirname, ".env") });
 
 const fs = require("fs/promises");
-const path = require("path");
 const { execFile } = require("child_process");
 const { promisify } = require("util");
 const crypto = require("crypto");
@@ -32,17 +32,20 @@ const SESSION_MAX_AGE_SECONDS = 8 * 60 * 60;
 const allowedOrigins = new Set(
   (
     process.env.CORS_ORIGINS ||
-    "http://localhost:3000,http://localhost:3001,http://localhost:3002,http://localhost:3003"
+    "http://localhost:3000,http://localhost:3001,http://localhost:3002,http://localhost:3003,http://localhost:5050,http://127.0.0.1:3000,http://127.0.0.1:3001,http://127.0.0.1:3002,http://127.0.0.1:3003,http://127.0.0.1:5050"
   )
     .split(",")
     .map((origin) => origin.trim())
     .filter(Boolean),
 );
+const isAllowedOrigin = (origin) =>
+  allowedOrigins.has(origin) ||
+  /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
 
 app.use(
   cors({
     origin(origin, callback) {
-      if (!origin || allowedOrigins.has(origin)) return callback(null, true);
+      if (!origin || isAllowedOrigin(origin)) return callback(null, true);
       const error = new Error("Origin is not allowed by CORS.");
       error.status = 403;
       return callback(error);
@@ -162,11 +165,9 @@ function setSessionCookie(response, session) {
 function requireAuth(request, response, next) {
   const session = readSession(parseCookies(request)[SESSION_COOKIE]);
   if (!session)
-    return response
-      .status(401)
-      .json({
-        error: "Sign in at http://localhost:5050/login before using MineOS.",
-      });
+    return response.status(401).json({
+      error: "Sign in at http://localhost:5050/login before using MineOS.",
+    });
   request.user = session;
   return next();
 }
@@ -221,12 +222,10 @@ app.get("/login", (request, response) => {
 app.post("/api/auth/login", async (request, response, next) => {
   try {
     if (!process.env.AUTH_SESSION_SECRET || !process.env.DEMO_LOGIN_PASSWORD)
-      return response
-        .status(503)
-        .json({
-          error:
-            "Authentication is not configured. Set AUTH_SESSION_SECRET and DEMO_LOGIN_PASSWORD.",
-        });
+      return response.status(503).json({
+        error:
+          "Authentication is not configured. Set AUTH_SESSION_SECRET and DEMO_LOGIN_PASSWORD.",
+      });
     const suppliedPassword = Buffer.from(String(request.body.password || ""));
     const configuredPassword = Buffer.from(process.env.DEMO_LOGIN_PASSWORD);
     const passwordsMatch =
@@ -638,11 +637,9 @@ app.post("/api/violations", requireRoles("manager"), async (req, res, next) => {
     !severities.has(severity) ||
     !description
   ) {
-    return res
-      .status(400)
-      .json({
-        error: "mine_id, category, severity, and description are required.",
-      });
+    return res.status(400).json({
+      error: "mine_id, category, severity, and description are required.",
+    });
   }
   if (!canAccessMine(req, mineId))
     return res
@@ -844,12 +841,10 @@ app.post(
         details: JSON.stringify({ filename: req.file.originalname }),
       });
       await client.query("COMMIT");
-      res
-        .status(201)
-        .json({
-          ...result.rows[0],
-          url: `/uploads/${path.basename(result.rows[0].storage_path)}`,
-        });
+      res.status(201).json({
+        ...result.rows[0],
+        url: `/uploads/${path.basename(result.rows[0].storage_path)}`,
+      });
     } catch (error) {
       if (client) await client.query("ROLLBACK").catch(() => undefined);
       if (req.file) await fs.unlink(req.file.path).catch(() => undefined);

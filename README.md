@@ -55,4 +55,4 @@ All accounts use the `DEMO_LOGIN_PASSWORD` value. For the demo configuration inc
 - Corporate: `http://localhost:5050/login?returnTo=http://localhost:3000`
 - Regulator: `http://localhost:5050/login?returnTo=http://localhost:3000`
 
-CORS accepts only the four local dashboard origins by default; set `CORS_ORIGINS` explicitly before any deployment.
+CORS accepts configured origins plus local `localhost`/`127.0.0.1` origins for any port during development; set `CORS_ORIGINS` explicitly and remove the local fallback before any deployment.
