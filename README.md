@@ -2,6 +2,41 @@
 
 MineOS is a hackathon MVP for reporting, triaging, and auditing mine-compliance violations.
 
+## Run the complete demo with Docker
+
+Install and start Docker Desktop, then run this command from the repository root:
+
+```sh
+docker compose up --build
+```
+
+On the first run, Docker creates PostgreSQL, applies the schema migrations, seeds demo data, creates the three demo accounts, starts the API with PDF OCR support, and starts all four dashboards. The first build can take a few minutes.
+
+Open the dashboards in a browser:
+
+- Corporate: `http://localhost:3000`
+- Field report: `http://localhost:3001`
+- Violation detail: `http://localhost:3002/?id=1`
+- Manager: `http://localhost:3003`
+
+Sign in first at `http://localhost:5050/login`. Use `manager@mineos.local`, `corporate@mineos.local`, or `regulator@mineos.local`; the default password is `MineOSDemo2026!`.
+
+To stop the demo, press `Ctrl+C`, then run:
+
+```sh
+docker compose down
+```
+
+This retains the database. To erase all Docker demo data and start with a new database, run `docker compose down -v`; this deletes the PostgreSQL and uploaded-evidence volumes.
+
+You may override the local Docker defaults by copying `docker.env.example` to `.env.docker`, changing its values, and starting with:
+
+```sh
+docker compose --env-file .env.docker up --build
+```
+
+PostgreSQL is available on host port `5433` by default so it does not conflict with a local PostgreSQL installation. The app containers still use PostgreSQL's internal port `5432`.
+
 ## Local setup
 
 1. Create a PostgreSQL database and copy `backend/.env.example` to `backend/.env` with its connection values.
@@ -11,7 +46,6 @@ MineOS is a hackathon MVP for reporting, triaging, and auditing mine-compliance 
    psql "$DATABASE_URL" -f db/migrations/000_initial_schema.sql
    psql "$DATABASE_URL" -f db/migrations/001_frontend_integration.sql
    psql "$DATABASE_URL" -f db/migrations/002_resolution_tracking.sql
-   psql "$DATABASE_URL" -f db/migrations/003_demo_accounts.sql
    ```
 
 3. Install the Python dependencies required by the demo-data script, then seed the database:
@@ -22,14 +56,20 @@ MineOS is a hackathon MVP for reporting, triaging, and auditing mine-compliance 
    python scripts/seed.py
    ```
 
-4. Start the API:
+4. Create the demo accounts after the seed data has created mines:
+
+   ```sh
+   psql "$DATABASE_URL" -f db/migrations/003_demo_accounts.sql
+   ```
+
+5. Start the API:
 
    ```sh
    npm --prefix backend install
    npm --prefix backend run dev
    ```
 
-5. Each dashboard is a separate Next.js application. Copy `frontend/.env.example` into the app directory as `.env.local`, install its dependencies, then start it. For example:
+6. Each dashboard is a separate Next.js application. Copy `frontend/.env.example` into the app directory as `.env.local`, install its dependencies, then start it. For example:
 
    ```sh
    cp frontend/.env.example frontend/mine-os-field-report/.env.local

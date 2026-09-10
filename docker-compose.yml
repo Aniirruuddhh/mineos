@@ -1,0 +1,143 @@
+name: mineos
+
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-mineos}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mineos_demo_password}
+    ports:
+      - "${POSTGRES_HOST_PORT:-5433}:5432"
+    volumes:
+      - mineos_pgdata:/var/lib/postgresql/data
+      - ./db/migrations/000_initial_schema.sql:/docker-entrypoint-initdb.d/000_initial_schema.sql:ro
+      - ./db/migrations/001_frontend_integration.sql:/docker-entrypoint-initdb.d/001_frontend_integration.sql:ro
+      - ./db/migrations/002_resolution_tracking.sql:/docker-entrypoint-initdb.d/002_resolution_tracking.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  seed:
+    build:
+      context: .
+      dockerfile: scripts/Dockerfile
+    restart: "no"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${POSTGRES_DB:-mineos}
+      DB_USER: ${POSTGRES_USER:-postgres}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-mineos_demo_password}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  setup:
+    image: postgres:16
+    restart: "no"
+    environment:
+      PGHOST: postgres
+      PGPORT: 5432
+      PGDATABASE: ${POSTGRES_DB:-mineos}
+      PGUSER: ${POSTGRES_USER:-postgres}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-mineos_demo_password}
+    volumes:
+      - ./db/migrations/003_demo_accounts.sql:/migrations/003_demo_accounts.sql:ro
+    command: ["psql", "-v", "ON_ERROR_STOP=1", "-f", "/migrations/003_demo_accounts.sql"]
+    depends_on:
+      seed:
+        condition: service_completed_successfully
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${POSTGRES_DB:-mineos}
+      DB_USER: ${POSTGRES_USER:-postgres}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-mineos_demo_password}
+      PORT: 5050
+      AUTH_SESSION_SECRET: ${AUTH_SESSION_SECRET:-local-demo-session-secret-change-before-deployment}
+      DEMO_LOGIN_PASSWORD: ${DEMO_LOGIN_PASSWORD:-MineOSDemo2026!}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:3001,http://localhost:3002,http://localhost:3003,http://localhost:5050,http://127.0.0.1:3000,http://127.0.0.1:3001,http://127.0.0.1:3002,http://127.0.0.1:3003,http://127.0.0.1:5050}
+    ports:
+      - "5050:5050"
+    volumes:
+      - mineos_uploads:/app/uploads
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://localhost:5050/api/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))\""]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+
+  corporate-dashboard:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+      args:
+        APP_DIR: mine-os-corporate-dashboard
+        NEXT_PUBLIC_API_URL: http://localhost:5050
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  field-report:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+      args:
+        APP_DIR: mine-os-field-report
+        NEXT_PUBLIC_API_URL: http://localhost:5050
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  violation-detail:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+      args:
+        APP_DIR: mine-os-violation-detail
+        NEXT_PUBLIC_API_URL: http://localhost:5050
+    restart: unless-stopped
+    ports:
+      - "3002:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  manager-dashboard:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+      args:
+        APP_DIR: mine-os-manager-dashboard
+        NEXT_PUBLIC_API_URL: http://localhost:5050
+        NEXT_PUBLIC_FIELD_REPORT_URL: http://localhost:3001
+        NEXT_PUBLIC_VIOLATION_DETAIL_URL: http://localhost:3002
+    restart: unless-stopped
+    ports:
+      - "3003:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  mineos_pgdata:
+  mineos_uploads:

@@ -1,0 +1,22 @@
+FROM node:22-bookworm-slim
+
+ARG APP_DIR
+ARG NEXT_PUBLIC_API_URL
+ARG NEXT_PUBLIC_FIELD_REPORT_URL
+ARG NEXT_PUBLIC_VIOLATION_DETAIL_URL
+
+WORKDIR /app
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_FIELD_REPORT_URL=$NEXT_PUBLIC_FIELD_REPORT_URL
+ENV NEXT_PUBLIC_VIOLATION_DETAIL_URL=$NEXT_PUBLIC_VIOLATION_DETAIL_URL
+
+COPY frontend/${APP_DIR}/package.json frontend/${APP_DIR}/pnpm-lock.yaml ./
+RUN corepack enable && pnpm install --frozen-lockfile
+
+COPY frontend/${APP_DIR}/ ./
+RUN pnpm build
+
+EXPOSE 3000
+
+CMD ["./node_modules/.bin/next", "start", "-p", "3000", "-H", "0.0.0.0"]
