@@ -55,7 +55,6 @@ app.use(
 );
 app.use(express.json({ limit: "1mb" }));
 app.use(express.urlencoded({ extended: false }));
-app.use("/uploads", express.static(uploadDirectory));
 
 const storage = multer.diskStorage({
   destination: async (_req, _file, callback) => {
@@ -154,12 +153,44 @@ function readSession(token) {
   }
 }
 
-function setSessionCookie(response, session) {
+function sessionCookieFlags(maxAgeSeconds) {
   const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
+  return `HttpOnly; SameSite=Lax; Path=/; Max-Age=${maxAgeSeconds}${secure}`;
+}
+
+function setSessionCookie(response, session) {
   response.setHeader(
     "Set-Cookie",
-    `${SESSION_COOKIE}=${encodeURIComponent(signSession(session))}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${SESSION_MAX_AGE_SECONDS}${secure}`,
+    `${SESSION_COOKIE}=${encodeURIComponent(signSession(session))}; ${sessionCookieFlags(SESSION_MAX_AGE_SECONDS)}`,
   );
+}
+
+function parseOptionalNumber(value, { min, max } = {}) {
+  if (value === undefined || value === null || value === "") {
+    return { ok: true, value: null };
+  }
+  const number = Number(value);
+  if (!Number.isFinite(number)) return { ok: false, value: null };
+  if (min !== undefined && number < min) return { ok: false, value: null };
+  if (max !== undefined && number > max) return { ok: false, value: null };
+  return { ok: true, value: number };
+}
+
+function parseBoolean(value) {
+  if (typeof value === "boolean") return value;
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
+  return ["true", "1", "on", "yes"].includes(normalized);
+}
+
+function resolveUploadPath(filename) {
+  const safeName = path.basename(String(filename || ""));
+  if (!safeName || safeName.startsWith(".")) return null;
+  const root = path.resolve(uploadDirectory);
+  const resolved = path.resolve(uploadDirectory, safeName);
+  if (resolved !== root && !resolved.startsWith(`${root}${path.sep}`)) return null;
+  return resolved;
 }
 
 function requireAuth(request, response, next) {
@@ -266,11 +297,21 @@ app.post("/api/auth/login", async (request, response, next) => {
 });
 
 app.post("/api/auth/logout", (_request, response) => {
-  response.setHeader(
-    "Set-Cookie",
-    `${SESSION_COOKIE}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0`,
-  );
+  response.setHeader("Set-Cookie", `${SESSION_COOKIE}=; ${sessionCookieFlags(0)}`);
   response.status(204).end();
+});
+
+app.get("/uploads/:filename", requireAuth, async (request, response) => {
+  const filePath = resolveUploadPath(request.params.filename);
+  if (!filePath) {
+    return response.status(400).json({ error: "Invalid evidence file name." });
+  }
+  try {
+    await fs.access(filePath);
+  } catch (_error) {
+    return response.status(404).json({ error: "Evidence file not found." });
+  }
+  return response.sendFile(filePath);
 });
 
 app.use("/api", (request, response, next) => {
@@ -437,14 +478,6 @@ async function runUpload(req, res, fieldName) {
   });
 }
 
-async function getPrimaryReporter(mineId, client) {
-  const result = await client.query(
-    `SELECT id FROM users WHERE mine_id = $1 AND role = 'manager' ORDER BY id LIMIT 1`,
-    [mineId],
-  );
-  return result.rows[0]?.id || null;
-}
-
 app.get("/api/health", async (_req, res) => {
   try {
     await pool.query("SELECT 1");
@@ -454,7 +487,7 @@ app.get("/api/health", async (_req, res) => {
   }
 });
 
-app.post("/api/ocr", requireRoles("manager"), async (req, res, next) => {
+app.post("/api/ocr", async (req, res, next) => {
   let renderedPdfPath;
   try {
     await runUpload(req, res, "document");
@@ -624,30 +657,52 @@ app.get("/api/violations", async (req, res, next) => {
   }
 });
 
-app.post("/api/violations", requireRoles("manager"), async (req, res, next) => {
-  const mineId = toId(req.body.mine_id);
-  const category = normalizeValue(req.body.category);
-  const severity = normalizeValue(req.body.severity || "medium");
-  const description = String(req.body.description || "").trim();
-  const area = String(req.body.area || "").trim() || null;
-
-  if (
-    !mineId ||
-    !categories.has(category) ||
-    !severities.has(severity) ||
-    !description
-  ) {
-    return res.status(400).json({
-      error: "mine_id, category, severity, and description are required.",
-    });
-  }
-  if (!canAccessMine(req, mineId))
-    return res
-      .status(403)
-      .json({ error: "You can report violations for your own mine only." });
-
+app.post("/api/violations", async (req, res, next) => {
   let client;
   try {
+    if (req.is("multipart/form-data")) await runUpload(req, res, "evidence");
+
+    const mineId = toId(req.body.mine_id);
+    const category = normalizeValue(req.body.category);
+    const severity = normalizeValue(req.body.severity || "medium");
+    const description = String(req.body.description || "").trim();
+    const area = String(req.body.area || "").trim() || null;
+    const latitude = parseOptionalNumber(req.body.latitude, {
+      min: -90,
+      max: 90,
+    });
+    const longitude = parseOptionalNumber(req.body.longitude, {
+      min: -180,
+      max: 180,
+    });
+    const gpsAccuracy = parseOptionalNumber(req.body.gps_accuracy, { min: 0 });
+    const alertManager = parseBoolean(req.body.alert_manager);
+
+    if (
+      !mineId ||
+      !categories.has(category) ||
+      !severities.has(severity) ||
+      !description
+    ) {
+      if (req.file) await fs.unlink(req.file.path).catch(() => undefined);
+      return res.status(400).json({
+        error: "mine_id, category, severity, and description are required.",
+      });
+    }
+    if (!latitude.ok || !longitude.ok || !gpsAccuracy.ok) {
+      if (req.file) await fs.unlink(req.file.path).catch(() => undefined);
+      return res.status(400).json({
+        error:
+          "latitude, longitude, and gps_accuracy must be valid numbers when provided.",
+      });
+    }
+    if (!canAccessMine(req, mineId)) {
+      if (req.file) await fs.unlink(req.file.path).catch(() => undefined);
+      return res
+        .status(403)
+        .json({ error: "You can report violations for your own mine only." });
+    }
+
     client = await pool.connect();
     await client.query("BEGIN");
     const reportedBy = req.user.id;
@@ -668,11 +723,11 @@ app.post("/api/violations", requireRoles("manager"), async (req, res, next) => {
         severityScores[severity],
         severity,
         area,
-        req.body.latitude ?? null,
-        req.body.longitude ?? null,
-        req.body.gps_accuracy ?? null,
+        latitude.value,
+        longitude.value,
+        gpsAccuracy.value,
         req.body.device_timestamp || null,
-        Boolean(req.body.alert_manager),
+        alertManager,
         req.body.ocr_text || null,
       ],
     );
@@ -685,9 +740,30 @@ app.post("/api/violations", requireRoles("manager"), async (req, res, next) => {
         category,
         severity,
         area,
-        alert_manager: Boolean(req.body.alert_manager),
+        alert_manager: alertManager,
       }),
     });
+    if (req.file) {
+      await client.query(
+        `INSERT INTO violation_evidence (violation_id, storage_path, original_name, mime_type, file_size, ocr_text, captured_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [
+          violation.id,
+          req.file.path,
+          req.file.originalname,
+          req.file.mimetype,
+          req.file.size,
+          req.body.ocr_text || null,
+          req.body.captured_at || req.body.device_timestamp || null,
+        ],
+      );
+      await writeAuditLog(client, {
+        violation_id: violation.id,
+        action: "evidence_uploaded",
+        performed_by: reportedBy,
+        details: JSON.stringify({ filename: req.file.originalname }),
+      });
+    }
     await client.query("COMMIT");
     const created = (await getViolations({ mineId })).find(
       (item) => item.id === Number(violation.id),
@@ -695,6 +771,7 @@ app.post("/api/violations", requireRoles("manager"), async (req, res, next) => {
     res.status(201).json(created);
   } catch (error) {
     if (client) await client.query("ROLLBACK").catch(() => undefined);
+    if (req.file) await fs.unlink(req.file.path).catch(() => undefined);
     next(error);
   } finally {
     client?.release();
@@ -722,7 +799,7 @@ app.get("/api/violations/:id", async (req, res, next) => {
 
 app.patch(
   "/api/violations/:id",
-  requireRoles("manager"),
+  requireRoles("manager", "corporate"),
   async (req, res, next) => {
     const id = toId(req.params.id);
     const status = normalizeValue(req.body.status);
@@ -741,7 +818,10 @@ app.patch(
       const result = await client.query(
         `UPDATE violations
        SET status = $1,
-           resolved_at = CASE WHEN $1 IN ('resolved', 'closed') THEN NOW() ELSE NULL END
+           resolved_at = CASE
+             WHEN $1 IN ('resolved', 'closed') THEN COALESCE(resolved_at, NOW())
+             ELSE NULL
+           END
        WHERE id = $2
        RETURNING *`,
         [status, id],
@@ -796,7 +876,6 @@ app.get("/api/violations/:id/evidence", async (req, res, next) => {
 
 app.post(
   "/api/violations/:id/evidence",
-  requireRoles("manager"),
   async (req, res, next) => {
     const id = toId(req.params.id);
     if (!id)
@@ -812,7 +891,7 @@ app.post(
       client = await pool.connect();
       await client.query("BEGIN");
       const violationResult = await client.query(
-        "SELECT reported_by FROM violations WHERE id = $1 FOR UPDATE",
+        "SELECT id FROM violations WHERE id = $1 FOR UPDATE",
         [id],
       );
       if (!violationResult.rows.length) {
@@ -876,7 +955,7 @@ app.get("/api/violations/:id/actions", async (req, res, next) => {
 
 app.post(
   "/api/violations/:id/actions",
-  requireRoles("manager"),
+  requireRoles("manager", "corporate"),
   async (req, res, next) => {
     const violationId = toId(req.params.id);
     const performedBy = req.user.id;
@@ -890,13 +969,37 @@ app.post(
       if (!(await requireViolationAccess(req, res, violationId))) return;
       client = await pool.connect();
       await client.query("BEGIN");
+      const ownerId = toId(req.body.owner_id) || performedBy;
+      const [ownerResult, violationMine] = await Promise.all([
+        client.query("SELECT id, mine_id FROM users WHERE id = $1", [ownerId]),
+        client.query("SELECT mine_id FROM violations WHERE id = $1", [
+          violationId,
+        ]),
+      ]);
+      if (!ownerResult.rows.length) {
+        await client.query("ROLLBACK");
+        return res
+          .status(400)
+          .json({ error: "The action owner was not found." });
+      }
+      const ownerMineId = ownerResult.rows[0].mine_id;
+      const mineId = violationMine.rows[0]?.mine_id;
+      if (
+        Number(ownerId) !== Number(performedBy) &&
+        (ownerMineId === null || Number(ownerMineId) !== Number(mineId))
+      ) {
+        await client.query("ROLLBACK");
+        return res.status(400).json({
+          error: "The action owner must belong to the same mine as the violation.",
+        });
+      }
       const result = await client.query(
         `INSERT INTO corrective_actions (violation_id, action_taken, owner_id, due_at, status, notes)
        VALUES ($1, $2, $3, $4, 'open', $5) RETURNING *`,
         [
           violationId,
           req.body.action_taken.trim(),
-          toId(req.body.owner_id) || performedBy,
+          ownerId,
           req.body.due_at || null,
           req.body.notes || null,
         ],
@@ -923,7 +1026,7 @@ app.post(
 
 app.patch(
   "/api/actions/:id",
-  requireRoles("manager"),
+  requireRoles("manager", "corporate"),
   async (req, res, next) => {
     const id = toId(req.params.id);
     const performedBy = req.user.id;
@@ -977,10 +1080,7 @@ app.patch(
   },
 );
 
-app.get(
-  "/api/audit-log/verify",
-  requireRoles("corporate", "regulator"),
-  async (_req, res, next) => {
+app.get("/api/audit-log/verify", async (_req, res, next) => {
     try {
       const result = await pool.query(
         "SELECT * FROM audit_log ORDER BY id ASC",
@@ -1008,8 +1108,7 @@ app.get(
     } catch (error) {
       next(error);
     }
-  },
-);
+});
 
 app.get("/api/audit-log/:violationId", async (req, res, next) => {
   const id = toId(req.params.violationId);

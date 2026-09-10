@@ -27,13 +27,17 @@ const navItems = [
 ]
 
 function titleCase(value: string) {
-  return value.split('_').map((word) => word[0].toUpperCase() + word.slice(1)).join(' ')
+  return String(value || '')
+    .split('_')
+    .filter(Boolean)
+    .map((word) => word[0].toUpperCase() + word.slice(1))
+    .join(' ')
 }
 
 function dueLabel(violation: Violation) {
-  if (violation.escalation_status === 'escalated') return `Overdue by ${Math.max(1, Math.abs(violation.hours_remaining || 0))}h`
+  if (violation.escalation_status === 'escalated') return `Overdue by ${Math.max(1, Math.abs(violation.hours_remaining ?? 0))}h`
   if (violation.escalation_status === 'closed') return 'Closed'
-  return `${Math.max(0, violation.hours_remaining || 0)}h remaining`
+  return `${Math.max(0, violation.hours_remaining ?? 0)}h remaining`
 }
 
 export default function Page() {
@@ -100,7 +104,7 @@ export default function Page() {
 
           <section className="grid gap-6 xl:grid-cols-[1.15fr_1fr_0.9fr]">
             <div className="rounded-xl border border-border bg-card p-5 shadow-sm"><div className="mb-4"><h2 className="font-semibold">Highest-risk mines</h2><p className="mt-1 text-xs text-muted-foreground">Ranked by current risk score</p></div><div className="overflow-x-auto"><table className="w-full text-left text-xs"><thead className="border-b border-border text-[10px] uppercase tracking-wide text-muted-foreground"><tr><th className="pb-3 font-medium">#</th><th className="pb-3 font-medium">Mine</th><th className="pb-3 font-medium">Risk</th><th className="pb-3 font-medium">SLA</th></tr></thead><tbody>{[...mines].sort((a, b) => b.risk - a.risk).map((mine, index) => <tr key={mine.id} onClick={() => setSelectedMine(mine)} className="cursor-pointer border-b border-border/60 last:border-0 hover:bg-muted/40"><td className="py-3 font-semibold text-muted-foreground">{String(index + 1).padStart(2, '0')}</td><td className="py-3"><p className="font-semibold">{mine.name}</p><p className="mt-0.5 text-[10px] text-muted-foreground">{mine.open} open · {mine.escalated} overdue</p></td><td className={`py-3 font-bold ${mine.risk > 70 ? 'text-red-600' : mine.risk > 45 ? 'text-amber-600' : 'text-emerald-600'}`}>{mine.risk}</td><td className="py-3 font-medium">{mine.sla_compliance}%</td></tr>)}</tbody></table></div></div>
-            <div className="rounded-xl border border-border bg-card p-5 shadow-sm"><h2 className="font-semibold">Violation categories</h2><p className="mt-1 text-xs text-muted-foreground">Reports by compliance category</p><div className="mt-6 space-y-4">{dashboard?.category_breakdown.map((category) => <div key={category.category}><div className="flex justify-between text-xs"><span>{titleCase(category.category)}</span><b>{category.count}</b></div><div className="mt-2 h-2 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-primary" style={{ width: `${Math.min(100, (category.count / Math.max(1, metrics?.open || 1)) * 100)}%` }} /></div></div>)}</div></div>
+            <div className="rounded-xl border border-border bg-card p-5 shadow-sm"><h2 className="font-semibold">Violation categories</h2><p className="mt-1 text-xs text-muted-foreground">Reports by compliance category</p><div className="mt-6 space-y-4">{dashboard?.category_breakdown.map((category) => <div key={category.category}><div className="flex justify-between text-xs"><span>{titleCase(category.category)}</span><b>{category.count}</b></div><div className="mt-2 h-2 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-primary" style={{ width: `${Math.min(100, (category.count / Math.max(1, dashboard.category_breakdown.reduce((sum, item) => sum + item.count, 0))) * 100)}%` }} /></div></div>)}</div></div>
             <div className="rounded-xl border border-border bg-card p-5 shadow-sm"><h2 className="font-semibold">SLA health</h2><p className="mt-1 text-xs text-muted-foreground">Current response performance</p><div className="my-5 flex items-center justify-center"><div className="relative flex size-36 items-center justify-center rounded-full" style={{ background: `conic-gradient(#1e40af 0deg ${(metrics?.sla_compliance || 0) * 3.6}deg, #ef4444 ${(metrics?.sla_compliance || 0) * 3.6}deg 360deg)` }}><div className="flex size-24 flex-col items-center justify-center rounded-full bg-card"><span className="text-2xl font-bold">{metrics?.sla_compliance ?? '—'}%</span><span className="text-[10px] text-muted-foreground">compliance</span></div></div></div><div className="space-y-2 text-xs"><div className="flex items-center justify-between"><span>On track</span><b>{metrics?.on_track || 0}</b></div><div className="flex items-center justify-between"><span>Due soon</span><b>{metrics?.due_soon || 0}</b></div><div className="flex items-center justify-between"><span>Escalated</span><b>{metrics?.escalated || 0}</b></div></div></div>
           </section>
         </main>

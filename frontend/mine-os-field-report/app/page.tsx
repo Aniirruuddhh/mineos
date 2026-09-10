@@ -1,8 +1,8 @@
 'use client'
 
-import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from 'react'
+import { ChangeEvent, FormEvent, useEffect, useState } from 'react'
 import { CheckCircle2, FileText, LoaderCircle, MapPin, ScanText, Send, ShieldAlert, Upload } from 'lucide-react'
-import { createViolation, getMines, runOcr, uploadEvidence } from '@/lib/api'
+import { createViolation, getMines, runOcr } from '@/lib/api'
 
 type Mine = {
   id: number
@@ -40,8 +40,6 @@ export default function Page() {
       .catch((requestError: Error) => setError(requestError.message || 'Could not load mines.'))
       .finally(() => setLoading(false))
   }, [])
-
-  const selectedMine = useMemo(() => mines.find((mine) => mine.id === Number(mineId)), [mines, mineId])
 
   function onEvidenceChange(event: ChangeEvent<HTMLInputElement>) {
     setEvidence(event.target.files?.[0] || null)
@@ -98,27 +96,22 @@ export default function Page() {
     setError('')
     setSuccess('')
     try {
-      const violation = await createViolation({
-        mine_id: Number(mineId),
-        category,
-        severity,
-        description: description.trim(),
-        area: area.trim() || undefined,
-        latitude: coordinates?.latitude,
-        longitude: coordinates?.longitude,
-        gps_accuracy: coordinates?.gps_accuracy,
-        device_timestamp: new Date().toISOString(),
-        alert_manager: alertManager,
-        ocr_text: ocrText || undefined,
-      })
-
-      if (evidence) {
-        await uploadEvidence(violation.id, evidence, {
-          ocr_text: ocrText,
-          captured_at: new Date().toISOString(),
-          ...(selectedMine?.manager_id ? { performed_by: String(selectedMine.manager_id) } : {}),
-        })
-      }
+      const violation = await createViolation(
+        {
+          mine_id: Number(mineId),
+          category,
+          severity,
+          description: description.trim(),
+          area: area.trim() || undefined,
+          latitude: coordinates?.latitude,
+          longitude: coordinates?.longitude,
+          gps_accuracy: coordinates?.gps_accuracy,
+          device_timestamp: new Date().toISOString(),
+          alert_manager: alertManager,
+          ocr_text: ocrText || undefined,
+        },
+        evidence,
+      )
 
       setSuccess(`Report ${violation.case_id} was submitted successfully.`)
       setDescription('')

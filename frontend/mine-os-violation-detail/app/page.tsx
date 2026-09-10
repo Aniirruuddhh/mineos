@@ -86,8 +86,9 @@ type Integrity = {
 };
 
 function titleCase(value: string) {
-  return value
+  return String(value || "")
     .split("_")
+    .filter(Boolean)
     .map((word) => word[0].toUpperCase() + word.slice(1))
     .join(" ");
 }
@@ -102,8 +103,8 @@ function formatDate(value: string | null) {
 function dueLabel(violation: Violation) {
   if (violation.escalation_status === "closed") return "Closed";
   if (violation.escalation_status === "escalated")
-    return `Overdue by ${Math.max(1, Math.abs(violation.hours_remaining || 0))}h`;
-  return `${Math.max(0, violation.hours_remaining || 0)}h remaining`;
+    return `Overdue by ${Math.max(1, Math.abs(violation.hours_remaining ?? 0))}h`;
+  return `${Math.max(0, violation.hours_remaining ?? 0)}h remaining`;
 }
 
 function Avatar({

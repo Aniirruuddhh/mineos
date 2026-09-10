@@ -46,6 +46,7 @@ PostgreSQL is available on host port `5433` by default so it does not conflict w
    psql "$DATABASE_URL" -f db/migrations/000_initial_schema.sql
    psql "$DATABASE_URL" -f db/migrations/001_frontend_integration.sql
    psql "$DATABASE_URL" -f db/migrations/002_resolution_tracking.sql
+   psql "$DATABASE_URL" -f db/migrations/004_audit_log_restrict.sql
    ```
 
 3. Install the Python dependencies required by the demo-data script, then seed the database:
@@ -85,9 +86,9 @@ PDF OCR renders the first page with Poppler's `pdftoppm`; install Poppler on the
 
 Set `AUTH_SESSION_SECRET` and `DEMO_LOGIN_PASSWORD` in `backend/.env`, then open `http://localhost:5050/login` before using a dashboard. The demo accounts created by migration `003` are:
 
-- `manager@mineos.local` — may create and update records for its own mine.
-- `corporate@mineos.local` — may view the corporate portfolio and audit verification.
-- `regulator@mineos.local` — may view portfolio, violations, and audit records.
+- `manager@mineos.local` — may create and update records for its own mine, including audit verification.
+- `corporate@mineos.local` — may view the corporate portfolio, file reports for any mine, update status and actions, and verify the audit log.
+- `regulator@mineos.local` — may view the portfolio, file reports, inspect violations, and verify the audit log.
 
 All accounts use the `DEMO_LOGIN_PASSWORD` value. For the demo configuration included in this workspace, that password is `MineOSDemo2026!`. Sign in before opening a dashboard:
 

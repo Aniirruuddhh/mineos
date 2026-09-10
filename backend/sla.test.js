@@ -23,8 +23,9 @@ test("audit hashes are stable for equivalent entries", () => {
     violation_id: 1,
     action: "created",
     performed_by: 1,
-    details: "{}",
+    details: '{"category":"safety","severity":"medium","area":null,"alert_manager":false}',
     created_at: "2026-09-06T00:00:00.000Z",
   };
   assert.equal(computeHash(entry), computeHash({ ...entry }));
+  assert.match(computeHash(entry), /^[a-f0-9]{64}$/);
 });

@@ -15,7 +15,33 @@ async function request(path: string, options: RequestInit = {}) {
 }
 
 export const getMines = () => request('/api/mines')
-export const createViolation = (payload: Record<string, unknown>) => request('/api/violations', { method: 'POST', body: JSON.stringify(payload) })
+export const createViolation = (
+  payload: Record<string, unknown>,
+  file?: File | null,
+) => {
+  if (!file) {
+    return request('/api/violations', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  }
+
+  const body = new FormData()
+  Object.entries(payload).forEach(([key, value]) => {
+    if (value === undefined || value === null || value === '') return
+    if (typeof value === 'boolean') {
+      body.append(key, value ? 'true' : 'false')
+      return
+    }
+    body.append(key, String(value))
+  })
+  body.append('evidence', file)
+  body.append(
+    'captured_at',
+    String(payload.device_timestamp || new Date().toISOString()),
+  )
+  return request('/api/violations', { method: 'POST', body })
+}
 export const runOcr = (file: File) => {
   const body = new FormData()
   body.append('document', file)

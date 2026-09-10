@@ -15,6 +15,7 @@ services:
       - ./db/migrations/000_initial_schema.sql:/docker-entrypoint-initdb.d/000_initial_schema.sql:ro
       - ./db/migrations/001_frontend_integration.sql:/docker-entrypoint-initdb.d/001_frontend_integration.sql:ro
       - ./db/migrations/002_resolution_tracking.sql:/docker-entrypoint-initdb.d/002_resolution_tracking.sql:ro
+      - ./db/migrations/004_audit_log_restrict.sql:/docker-entrypoint-initdb.d/004_audit_log_restrict.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
@@ -47,7 +48,17 @@ services:
       PGPASSWORD: ${POSTGRES_PASSWORD:-mineos_demo_password}
     volumes:
       - ./db/migrations/003_demo_accounts.sql:/migrations/003_demo_accounts.sql:ro
-    command: ["psql", "-v", "ON_ERROR_STOP=1", "-f", "/migrations/003_demo_accounts.sql"]
+      - ./db/migrations/004_audit_log_restrict.sql:/migrations/004_audit_log_restrict.sql:ro
+    command:
+      [
+        "psql",
+        "-v",
+        "ON_ERROR_STOP=1",
+        "-f",
+        "/migrations/003_demo_accounts.sql",
+        "-f",
+        "/migrations/004_audit_log_restrict.sql",
+      ]
     depends_on:
       seed:
         condition: service_completed_successfully
