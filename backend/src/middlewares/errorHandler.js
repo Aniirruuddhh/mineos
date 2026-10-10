@@ -5,6 +5,7 @@ function notFound(_request, response) {
 }
 
 function errorHandler(error, _request, response, _next) {
+  void _next;
   console.error(error);
   if (error instanceof multer.MulterError) {
     return response.status(400).json({ error: error.message });
